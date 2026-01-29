@@ -59,20 +59,20 @@ curl -s -F "files[]=@audio.mp3" https://uguu.se/upload
 # 返回: {"success":true,"files":[{"url":"https://h.uguu.se/xxx.mp3"}]}
 
 # 3. 调用火山引擎 API
-./volcengine_transcribe.sh "https://h.uguu.se/xxx.mp3"
+./scripts/volcengine_transcribe.sh "https://h.uguu.se/xxx.mp3"
 # 输出: volcengine_result.json
 ```
 
 ### 步骤 4: 生成字幕
 
 ```bash
-node generate_subtitles.js volcengine_result.json
+node scripts/generate_subtitles.js volcengine_result.json
 # 输出: subtitles_words.json
 ```
 
 ### 步骤 5: AI 分析口误（Claude 手动）
 
-**读取方法论后分析**：先读 `tips/口误识别方法论.md`
+**读取方法论后分析**：先读 `用户习惯/口误识别方法论.md`
 
 分析 `subtitles_words.json`，识别：
 - 口误（重复、卡顿、替换）
@@ -88,10 +88,10 @@ node generate_subtitles.js volcengine_result.json
 
 ```bash
 # 6. 生成审核网页
-node generate_review.js subtitles_words.json auto_selected.json audio.mp3
+node scripts/generate_review.js subtitles_words.json auto_selected.json audio.mp3
 
 # 7. 启动审核服务器
-node review_server.js 8899 视频.mp4
+node scripts/review_server.js 8899 视频.mp4
 # 打开 http://localhost:8899
 ```
 
@@ -123,7 +123,7 @@ node review_server.js 8899 视频.mp4
 
 ## 口误识别规则
 
-详见 `tips/口误识别方法论.md`
+详见 `用户习惯/口误识别方法论.md`
 
 | 类型 | 示例 | 删除策略 |
 |------|------|----------|
