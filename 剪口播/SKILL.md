@@ -72,7 +72,7 @@ node scripts/generate_subtitles.js volcengine_result.json
 
 ### 步骤 5: AI 分析口误（Claude 手动）
 
-**读取方法论后分析**：先读 `用户习惯/口误识别方法论.md`
+**读取方法论后分析**：先读 `用户习惯/`
 
 分析 `subtitles_words.json`，识别：
 - 口误（重复、卡顿、替换）
@@ -123,7 +123,7 @@ node scripts/review_server.js 8899 视频.mp4
 
 ## 口误识别规则
 
-详见 `用户习惯/口误识别方法论.md`
+详见 `用户习惯/`
 
 | 类型 | 示例 | 删除策略 |
 |------|------|----------|
