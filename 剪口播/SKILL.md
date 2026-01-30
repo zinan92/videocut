@@ -104,17 +104,9 @@ node "$SKILL_DIR/scripts/generate_subtitles.js" volcengine_result.json
 
 ### 步骤 5: AI 分析口误（Claude 手动）
 
-**读取方法论后分析**：先读 `用户习惯/`
-
-分析 `subtitles_words.json`，识别：
-- 口误（重复、卡顿、替换）
-- 静音（isGap=true 且 ≥1s）
-- 语气词（嗯/哎/诶）
-
-输出预选索引数组到 `auto_selected.json`：
-```json
-[72, 85, 120]  // 建议删除的 word 索引
-```
+1. 先读 `用户习惯/` 目录下所有规则
+2. 分析 `subtitles_words.json`
+3. 输出预选索引到 `auto_selected.json`
 
 ### 步骤 6-7: 审核
 
@@ -150,24 +142,6 @@ node "$SKILL_DIR/scripts/review_server.js" 8899 "$VIDEO_PATH"
 ```json
 [72, 85, 120]  // Claude 分析生成的预选索引
 ```
-
----
-
-## 口误识别规则
-
-详见 `用户习惯/`
-
-| 类型 | 示例 | 删除策略 |
-|------|------|----------|
-| 重复型 | `拉满新拉满` | 只删差异（"新"） |
-| 替换型 | `AI就是AI就会` | 删第一个完整版本 |
-| 卡顿型 | `听会会` | 删第一个重复字 |
-
-### 静音规则
-
-- `isGap=true` 且时长 ≥1s → 建议删除
-- 开头静音 >1s → 建议删除
-- <1s 的短停顿 → 忽略（保留节奏感）
 
 ---
 
