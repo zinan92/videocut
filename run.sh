@@ -36,7 +36,8 @@ VIDEO_PATH="$(cd "$(dirname "$VIDEO_PATH")" && pwd)/$(basename "$VIDEO_PATH")"
 SCRIPT_DIR="$(cd "$(dirname "$0")/剪口播/scripts" && pwd)"
 VIDEO_NAME=$(basename "$VIDEO_PATH" .mp4)
 DATE=$(date +%Y-%m-%d)
-BASE_DIR="$(dirname "$0")/output/${DATE}_${VIDEO_NAME}"
+# Use absolute path so BASE_DIR stays valid after any cd into subdirectories
+BASE_DIR="$(cd "$(dirname "$0")" && pwd)/output/${DATE}_${VIDEO_NAME}"
 
 echo "🎬 videocut — 一键处理"
 echo "📹 视频: $VIDEO_PATH"
