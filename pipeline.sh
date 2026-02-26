@@ -1,41 +1,45 @@
 #!/usr/bin/env bash
+# pipeline.sh — 一键内容生产 Pipeline
 #
-# pipeline.sh — 内容生产 Master Pipeline
+# 用法: ./pipeline.sh <video_file> [OPTIONS]
+#   --skip-edit          跳过 Phase 1 视频剪辑
+#   --output-dir <dir>   指定 output 目录（--skip-edit 时使用）
 #
-# 用法:
-#   ./pipeline.sh <video.mp4>
-#   ./pipeline.sh <video.mp4> --skip-edit
-#   ./pipeline.sh <video.mp4> --skip-edit --output-dir output/2026-02-26_xxx/
-#
-# 阶段:
-#   Phase 1: 视频粗剪 (run.sh)
+# 完整流程:
+#   Phase 1: 视频剪辑 (run.sh)
 #   Phase 2: 内容降维 (content-repurpose.sh)
-#   Phase 3: 平台特定内容生成 (claude CLI)
-#   Phase 4: 视觉卡片生成 (generate-cards.sh)
+#   Phase 3: 平台内容生成 (claude CLI)
+#   Phase 4: 卡片生成 (generate-cards.sh，复用已有 thumbnail)
 #   Phase 5: 生成 manifest.json
-#   Phase 6: 产出总结
+#   Phase 6: 打印 summary
 
-set -e
+set -euo pipefail
 
-# ─── 颜色 & 工具 ─────────────────────────────────────────────────────────────
-RED='\033[0;31m'
-GREEN='\033[0;32m'
-YELLOW='\033[1;33m'
-BLUE='\033[0;34m'
-CYAN='\033[0;36m'
-BOLD='\033[1m'
-RESET='\033[0m'
+# ─── 颜色 & 格式 ──────────────────────────────────────────────────────────────
+RESET="\033[0m"
+BOLD="\033[1m"
+RED="\033[31m"
+GREEN="\033[32m"
+YELLOW="\033[33m"
+BLUE="\033[34m"
+CYAN="\033[36m"
+DIM="\033[2m"
 
-ts() { date '+%H:%M:%S'; }
-log()     { echo -e "${CYAN}[$(ts)]${RESET} $*"; }
-log_ok()  { echo -e "${GREEN}[$(ts)] ✅${RESET} $*"; }
-log_skip(){ echo -e "${YELLOW}[$(ts)] ⏭️  SKIP${RESET} $*"; }
-log_err() { echo -e "${RED}[$(ts)] ❌${RESET} $*" >&2; }
-phase()   { echo -e "\n${BOLD}${BLUE}══════════════════════════════════════${RESET}"; \
-            echo -e "${BOLD}${BLUE}  $*${RESET}"; \
-            echo -e "${BOLD}${BLUE}══════════════════════════════════════${RESET}"; }
+log()  { echo -e "${DIM}[$(date '+%H:%M:%S')]${RESET} $*"; }
+info() { echo -e "${DIM}[$(date '+%H:%M:%S')]${RESET} ${BLUE}ℹ${RESET}  $*"; }
+ok()   { echo -e "${DIM}[$(date '+%H:%M:%S')]${RESET} ${GREEN}✅${RESET} $*"; }
+warn() { echo -e "${DIM}[$(date '+%H:%M:%S')]${RESET} ${YELLOW}⚠️${RESET}  $*"; }
+err()  { echo -e "${DIM}[$(date '+%H:%M:%S')]${RESET} ${RED}❌${RESET} $*" >&2; }
+phase(){ echo -e "\n${BOLD}${CYAN}═══ $* ═══${RESET}"; }
+skip() { echo -e "${DIM}[$(date '+%H:%M:%S')]${RESET} ${YELLOW}⏭${RESET}  $* ${DIM}(已存在，跳过)${RESET}"; }
 
+PIPELINE_START=$(date +%s)
+
+# ─── 脚本目录 & 路径 ──────────────────────────────────────────────────────────
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+RUN_SH="$SCRIPT_DIR/run.sh"
+REPURPOSE_SH="$SCRIPT_DIR/content-repurpose.sh"
+CARDS_SH="$SCRIPT_DIR/generate-cards.sh"
 
 # ─── 参数解析 ─────────────────────────────────────────────────────────────────
 VIDEO_PATH=""
@@ -46,520 +50,515 @@ while [[ $# -gt 0 ]]; do
   case "$1" in
     --skip-edit)
       SKIP_EDIT=true
-      shift
-      ;;
+      shift ;;
     --output-dir)
       OUTPUT_DIR_OVERRIDE="$2"
-      shift 2
-      ;;
-    --output-dir=*)
-      OUTPUT_DIR_OVERRIDE="${1#--output-dir=}"
-      shift
-      ;;
+      shift 2 ;;
     -*)
-      log_err "未知选项: $1"
-      exit 1
-      ;;
+      err "未知参数: $1"
+      exit 1 ;;
     *)
       if [[ -z "$VIDEO_PATH" ]]; then
         VIDEO_PATH="$1"
       fi
-      shift
-      ;;
+      shift ;;
   esac
 done
 
-# 校验
-if [[ -z "$VIDEO_PATH" && -z "$OUTPUT_DIR_OVERRIDE" ]]; then
-  echo "用法: $0 <video.mp4> [--skip-edit] [--output-dir <dir>]"
-  echo ""
-  echo "  --skip-edit          跳过 Phase 1 (视频粗剪)"
-  echo "  --output-dir <dir>   指定/复用已有输出目录"
-  echo ""
-  echo "示例:"
-  echo "  $0 video.mp4"
-  echo "  $0 video.mp4 --skip-edit --output-dir output/2026-02-26_video/"
+# 验证参数
+if [[ -z "$VIDEO_PATH" && "$SKIP_EDIT" = false ]]; then
+  err "缺少视频路径"
+  echo "用法: $0 <video_file> [--skip-edit] [--output-dir <dir>]"
   exit 1
 fi
 
-PIPELINE_START=$(date +%s)
+if [[ -n "$VIDEO_PATH" && ! -f "$VIDEO_PATH" ]]; then
+  err "找不到视频文件: $VIDEO_PATH"
+  exit 1
+fi
 
-echo -e "${BOLD}${CYAN}"
-echo "  ╔══════════════════════════════════════════╗"
-echo "  ║     🎬 Content Pipeline v1.0             ║"
-echo "  ║     Master Production Pipeline           ║"
-echo "  ╚══════════════════════════════════════════╝"
-echo -e "${RESET}"
+# 解析视频绝对路径
+[[ -n "$VIDEO_PATH" ]] && VIDEO_PATH="$(cd "$(dirname "$VIDEO_PATH")" && pwd)/$(basename "$VIDEO_PATH")"
 
-# ─── Phase 1: 视频粗剪 ───────────────────────────────────────────────────────
-phase "Phase 1: 视频粗剪 (run.sh)"
-
-phase1_main() {
-  if [[ "$SKIP_EDIT" == "true" ]]; then
-    log_skip "Phase 1 — --skip-edit 模式，跳过视频粗剪"
-    return 0
-  fi
-
-  if [[ -z "$VIDEO_PATH" ]]; then
-    log_err "Phase 1 需要视频路径，请提供 <video.mp4> 或使用 --skip-edit"
-    exit 1
-  fi
-
-  if [[ ! -f "$VIDEO_PATH" ]]; then
-    log_err "找不到视频文件: $VIDEO_PATH"
-    exit 1
-  fi
-
-  VIDEO_ABS="$(cd "$(dirname "$VIDEO_PATH")" && pwd)/$(basename "$VIDEO_PATH")"
-  log "运行 run.sh: $VIDEO_ABS"
-  cd "$SCRIPT_DIR"
-  ./run.sh "$VIDEO_ABS" small --no-server
-  log_ok "Phase 1 完成"
-}
-
-phase1_main
-
-# ─── 确定 OUTPUT_DIR ─────────────────────────────────────────────────────────
+# 推断 output 目录
 if [[ -n "$OUTPUT_DIR_OVERRIDE" ]]; then
-  # 用指定目录（绝对或相对 SCRIPT_DIR）
-  if [[ "$OUTPUT_DIR_OVERRIDE" = /* ]]; then
-    OUTPUT_DIR="$OUTPUT_DIR_OVERRIDE"
-  else
-    OUTPUT_DIR="$SCRIPT_DIR/$OUTPUT_DIR_OVERRIDE"
-  fi
-  if [[ ! -d "$OUTPUT_DIR" ]]; then
-    log_err "指定的 --output-dir 不存在: $OUTPUT_DIR"
-    exit 1
-  fi
+  OUTPUT_DIR="$(cd "$OUTPUT_DIR_OVERRIDE" && pwd)"
+elif [[ -n "$VIDEO_PATH" ]]; then
+  VIDEO_BASENAME=$(basename "$VIDEO_PATH")
+  DATE=$(date +%Y-%m-%d)
+  OUTPUT_DIR="$SCRIPT_DIR/output/${DATE}_${VIDEO_BASENAME}"
 else
-  # 从视频名推断 run.sh 的输出目录
-  VIDEO_ABS="$(cd "$(dirname "$VIDEO_PATH")" && pwd)/$(basename "$VIDEO_PATH")"
-  VIDEO_BASE=$(basename "$VIDEO_PATH")
-  VIDEO_STEM="${VIDEO_BASE%.*}"
-  DATE_PREFIX=$(date +%Y-%m-%d)
-  OUTPUT_DIR="$SCRIPT_DIR/output/${DATE_PREFIX}_${VIDEO_STEM}"
-  if [[ ! -d "$OUTPUT_DIR" ]]; then
-    log_err "推断的输出目录不存在: $OUTPUT_DIR"
-    log_err "请使用 --output-dir 指定正确路径"
-    exit 1
-  fi
+  err "--skip-edit 时必须提供 --output-dir"
+  exit 1
 fi
 
-log "📂 输出目录: $OUTPUT_DIR"
+REPURPOSE_DIR="$OUTPUT_DIR/4_内容降维"
+PLATFORM_DIR="$OUTPUT_DIR/5_平台内容"
 
-# ─── Phase 2: 内容降维 ───────────────────────────────────────────────────────
-phase "Phase 2: 内容降维 (content-repurpose.sh)"
+echo ""
+echo -e "${BOLD}${CYAN}🎬 Videocut Pipeline${RESET}"
+echo -e "${DIM}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${RESET}"
+[[ -n "$VIDEO_PATH" ]] && log "视频: $VIDEO_PATH"
+log "输出: $OUTPUT_DIR"
+log "跳过剪辑: $SKIP_EDIT"
+echo ""
 
-phase2_main() {
-  REPURPOSE_DIR="$OUTPUT_DIR/4_内容降维"
-  # 检查所有关键输出是否存在
-  ALL_EXIST=true
-  for f in article_cn.md article_en.md quotes.json video_meta.json; do
-    if [[ ! -f "$REPURPOSE_DIR/$f" ]]; then
-      ALL_EXIST=false
-      break
-    fi
-  done
-
-  if [[ "$ALL_EXIST" == "true" ]]; then
-    log_skip "4_内容降维/ 输出已存在，跳过 Phase 2"
-    return 0
-  fi
-
-  if [[ -z "$VIDEO_PATH" ]]; then
-    log "运行 content-repurpose.sh (无视频路径)"
-    cd "$SCRIPT_DIR"
-    ./content-repurpose.sh "$OUTPUT_DIR"
+# ─── 文件大小辅助 ─────────────────────────────────────────────────────────────
+file_size() {
+  local f="$1"
+  local size_bytes
+  size_bytes=$(wc -c < "$f" 2>/dev/null | tr -d ' ') || echo "0"
+  if [[ $size_bytes -gt 1048576 ]]; then
+    printf "%.1fM" "$(echo "scale=1; $size_bytes / 1048576" | bc)"
+  elif [[ $size_bytes -gt 1024 ]]; then
+    printf "%.1fK" "$(echo "scale=1; $size_bytes / 1024" | bc)"
   else
-    VIDEO_ABS="$(cd "$(dirname "$VIDEO_PATH")" && pwd)/$(basename "$VIDEO_PATH")"
-    log "运行 content-repurpose.sh"
-    cd "$SCRIPT_DIR"
-    ./content-repurpose.sh "$OUTPUT_DIR" "$VIDEO_ABS"
+    echo "${size_bytes}B"
   fi
-  log_ok "Phase 2 完成"
 }
 
-phase2_main
+print_file() {
+  local LABEL="$1"
+  local FPATH="$2"
+  if [[ -f "$FPATH" ]]; then
+    local SIZE
+    SIZE=$(file_size "$FPATH")
+    echo -e "  ${GREEN}✓${RESET} ${LABEL}  ${DIM}${SIZE}${RESET}"
+  else
+    echo -e "  ${RED}✗${RESET} ${LABEL}  ${DIM}(缺失)${RESET}"
+  fi
+}
 
-# ─── 读取文章内容 ─────────────────────────────────────────────────────────────
-ARTICLE_CN="$OUTPUT_DIR/4_内容降维/article_cn.md"
-ARTICLE_EN="$OUTPUT_DIR/4_内容降维/article_en.md"
+# ─── 剥除 Claude 可能添加的 markdown 代码块围栏 ──────────────────────────────
+strip_code_fences() {
+  local FILE="$1"
+  [[ -f "$FILE" ]] || return 0
+  STRIP_TARGET="$FILE" node -e '
+    const fs = require("fs");
+    const f = process.env.STRIP_TARGET;
+    let c = fs.readFileSync(f, "utf8");
+    // Remove leading ```lang\n or ```\n
+    c = c.replace(/^```[a-zA-Z]*\n/, "");
+    // Remove trailing \n```\s*
+    c = c.replace(/\n```\s*$/, "");
+    c = c.trim();
+    fs.writeFileSync(f, c + "\n");
+  ' 2>/dev/null || true
+}
 
-if [[ ! -f "$ARTICLE_CN" ]]; then
-  log_err "找不到 article_cn.md: $ARTICLE_CN"
+# ─────────────────────────────────────────────────────────────────────────────
+# Phase 1: 视频剪辑
+# ─────────────────────────────────────────────────────────────────────────────
+phase "Phase 1: 视频剪辑"
+
+run_phase1() {
+  if [[ "$SKIP_EDIT" = true ]]; then
+    warn "Phase 1 已跳过（--skip-edit）"
+    if [[ ! -d "$OUTPUT_DIR" ]]; then
+      err "output 目录不存在: $OUTPUT_DIR"
+      exit 1
+    fi
+    return
+  fi
+
+  # 断点续跑
+  if [[ -f "$OUTPUT_DIR/1_转录/volcengine_result.json" ]]; then
+    skip "Phase 1 (1_转录/volcengine_result.json 已存在)"
+    return
+  fi
+
+  info "调用 run.sh..."
+  bash "$RUN_SH" "$VIDEO_PATH" small --no-server
+  ok "Phase 1 完成"
+}
+
+run_phase1
+
+if [[ ! -f "$OUTPUT_DIR/1_转录/volcengine_result.json" ]]; then
+  err "Phase 1 输出缺失: $OUTPUT_DIR/1_转录/volcengine_result.json"
   exit 1
 fi
-if [[ ! -f "$ARTICLE_EN" ]]; then
-  log_err "找不到 article_en.md: $ARTICLE_EN"
-  exit 1
-fi
 
-ARTICLE_CN_CONTENT=$(cat "$ARTICLE_CN")
-ARTICLE_EN_CONTENT=$(cat "$ARTICLE_EN")
+# ─────────────────────────────────────────────────────────────────────────────
+# Phase 2: 内容降维
+# ─────────────────────────────────────────────────────────────────────────────
+phase "Phase 2: 内容降维"
 
-# ─── Phase 3: 平台特定内容 ───────────────────────────────────────────────────
-phase "Phase 3: 平台特定内容 (Claude CLI)"
+run_phase2() {
+  if [[ -f "$REPURPOSE_DIR/article_cn.md" && -f "$REPURPOSE_DIR/article_en.md" ]]; then
+    skip "Phase 2 (4_内容降维/ 已存在)"
+    return
+  fi
 
-PLATFORM_DIR="$OUTPUT_DIR/5_平台内容"
+  info "调用 content-repurpose.sh..."
+  if [[ -n "$VIDEO_PATH" ]]; then
+    bash "$REPURPOSE_SH" "$OUTPUT_DIR" "$VIDEO_PATH"
+  else
+    bash "$REPURPOSE_SH" "$OUTPUT_DIR"
+  fi
+  ok "Phase 2 完成"
+}
+
+run_phase2
+
+for f in "$REPURPOSE_DIR/article_cn.md" "$REPURPOSE_DIR/article_en.md" "$REPURPOSE_DIR/quotes.json"; do
+  if [[ ! -f "$f" ]]; then
+    err "Phase 2 输出缺失: $f"
+    exit 1
+  fi
+done
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Phase 3: 平台内容生成
+# ─────────────────────────────────────────────────────────────────────────────
+phase "Phase 3: 平台内容生成"
+
 mkdir -p "$PLATFORM_DIR"
 
-# 辅助：调用 claude -p 生成内容，失败不终止整体流程
-claude_generate() {
-  local PROMPT="$1"
-  local OUT_FILE="$2"
-  local LABEL="$3"
+CN_CONTENT=$(cat "$REPURPOSE_DIR/article_cn.md")
+EN_CONTENT=$(cat "$REPURPOSE_DIR/article_en.md")
 
-  if [[ -f "$OUT_FILE" && -s "$OUT_FILE" ]]; then
-    log_skip "$LABEL (文件已存在)"
-    return 0
+# ── 3.1 即刻短版 ──────────────────────────────────────────────────────────────
+gen_jike() {
+  local OUT="$PLATFORM_DIR/jike_post.md"
+  if [[ -f "$OUT" ]]; then skip "jike_post.md"; return; fi
+  info "生成 jike_post.md (即刻短版 <1000字)..."
+
+  printf '%s\n\n%s' \
+    "你是即刻 App 的资深用户，擅长写简洁有力的长帖。
+
+请将以下中文文章改写为即刻风格的短版内容。
+
+要求：
+- 字数严格少于 1000 字
+- 不要 Markdown 标题（去掉所有 # 标题）
+- 去掉所有 --- 分隔线
+- 口语化表达，像在和朋友说话
+- 保留核心观点和洞察
+- 开头要有冲击力，直接抛出最有价值的观点
+- 结尾可以提问或引发思考
+- 纯文本输出，不要任何解释或前言
+
+原文：" \
+    "$CN_CONTENT" \
+    | claude -p --dangerously-skip-permissions --output-format text > "$OUT"
+  ok "jike_post.md ($(file_size "$OUT"))"
+}
+
+# ── 3.2 小红书文案 ────────────────────────────────────────────────────────────
+gen_xhs() {
+  local OUT="$PLATFORM_DIR/xhs_caption.md"
+  if [[ -f "$OUT" ]]; then skip "xhs_caption.md"; return; fi
+  info "生成 xhs_caption.md (小红书 <500字)..."
+
+  printf '%s\n\n%s' \
+    "你是小红书运营专家，擅长写病毒式传播的小红书文案。
+
+请将以下中文文章改写为小红书风格的文案。
+
+要求：
+- 字数严格少于 500 字（不含 emoji 和话题标签）
+- 大量使用 emoji（每段都要有，但要自然不堆砌）
+- 结尾加 5-8 个话题标签，格式：#话题名
+- 开头有吸引力（可以用「说个扎心的真相」「对！就是这个！」等口语化开场）
+- 分段清晰，每段 2-3 句
+- 语气轻松活泼
+- 纯文本输出，不要任何解释或前言
+
+原文：" \
+    "$CN_CONTENT" \
+    | claude -p --dangerously-skip-permissions --output-format text > "$OUT"
+  ok "xhs_caption.md ($(file_size "$OUT"))"
+}
+
+# ── 3.3 公众号文章 ────────────────────────────────────────────────────────────
+gen_wechat() {
+  local OUT="$PLATFORM_DIR/wechat_article.md"
+  if [[ -f "$OUT" ]]; then skip "wechat_article.md"; return; fi
+  info "生成 wechat_article.md (公众号版)..."
+
+  printf '%s\n\n%s' \
+    "你是公众号运营专家，擅长写深度、有传播力的公众号文章。
+
+请将以下中文文章改写为公众号版本。
+
+要求：
+- 保留原文核心内容和完整观点
+- 在文章结尾自然地加上引导关注的话
+  例如：「如果这篇文章对你有启发，点击右下角【在看】，让更多人看到。关注我，持续分享 AI 时代的洞察。」
+- 保留 Markdown 格式（标题用 #，加粗等）
+- 段落间距合理，适合手机阅读
+- 语言流畅自然
+- 纯 Markdown 输出，不要任何解释或前言
+
+原文：" \
+    "$CN_CONTENT" \
+    | claude -p --dangerously-skip-permissions --output-format text > "$OUT"
+  ok "wechat_article.md ($(file_size "$OUT"))"
+}
+
+# ── 3.4 X Thread ──────────────────────────────────────────────────────────────
+gen_x_thread() {
+  local OUT="$PLATFORM_DIR/x_thread.json"
+  if [[ -f "$OUT" ]]; then
+    strip_code_fences "$OUT"  # 清理可能的围栏（无论新旧文件）
+    skip "x_thread.json"
+    return
   fi
+  info "生成 x_thread.json (5-8条 Thread)..."
 
-  log "生成 $LABEL ..."
-  local RESULT
-  if RESULT=$(echo "$PROMPT" | claude -p --output-format text --dangerously-skip-permissions 2>&1); then
-    echo "$RESULT" > "$OUT_FILE"
-    local SIZE
-    SIZE=$(wc -c < "$OUT_FILE" | tr -d ' ')
-    log_ok "$LABEL → $(basename "$OUT_FILE") (${SIZE} bytes)"
-  else
-    log_err "$LABEL 生成失败: $RESULT"
-    # 不 exit，继续其他平台
-    return 1
-  fi
-}
+  printf '%s\n\n%s' \
+    'You are an expert Twitter/X thread writer with a knack for viral content.
 
-# ── 即刻短版 ──────────────────────────────────────────────────────────────────
-phase3_jike() {
-  local PROMPT="你是即刻平台的内容创作者，风格简洁有力、口语化、有个人观点。
-
-请将以下中文文章改写为即刻短版动态：
-
-要求：
-- 字数 1000 字以内
-- 去掉所有标题（# ## 等）和分隔线（---）
-- 口语化，像在和朋友聊天
-- 保留核心观点，去掉冗余解释
-- 结尾可以有一个开放性问题或行动号召
-- 直接输出正文，不要任何解释或元信息
-
-原文章：
-
-${ARTICLE_CN_CONTENT}"
-
-  claude_generate "$PROMPT" "$PLATFORM_DIR/jike_post.md" "即刻短版"
-}
-
-# ── 小红书文案 ────────────────────────────────────────────────────────────────
-phase3_xhs() {
-  local PROMPT="你是小红书头部创作者，擅长写病毒式传播的图文笔记。
-
-请将以下中文文章改写为小红书文案：
-
-要求：
-- 500 字以内
-- 开头要有强力 hook（前两行决定用户是否继续读）
-- 全文加入恰当的 emoji，增加视觉节奏感
-- 结尾必须有 3-8 个相关话题标签（格式：#AI #未来 #职场 等）
-- 语气活泼、有温度，像真人分享
-- 直接输出文案正文，不要任何解释
-
-原文章：
-
-${ARTICLE_CN_CONTENT}"
-
-  claude_generate "$PROMPT" "$PLATFORM_DIR/xhs_caption.md" "小红书文案"
-}
-
-# ── 公众号版 ──────────────────────────────────────────────────────────────────
-phase3_wechat() {
-  local PROMPT="你是微信公众号编辑，负责对原文进行最终排版和发布优化。
-
-请将以下中文文章改写为公众号版本：
-
-要求：
-- 基本保留原文内容和结构，不做大幅改动
-- 在文章末尾加上「关注引导」段落（内容：如果这篇文章对你有启发，欢迎关注，我们一起在 AI 时代找到自己的位置。）
-- 用 Markdown 格式输出
-- 直接输出文章全文，不要任何解释
-
-原文章：
-
-${ARTICLE_CN_CONTENT}"
-
-  claude_generate "$PROMPT" "$PLATFORM_DIR/wechat_article.md" "公众号版"
-}
-
-# ── X Thread ─────────────────────────────────────────────────────────────────
-phase3_x_thread() {
-  local PROMPT="You are a viral X (Twitter) content creator known for insightful threads.
-
-Please rewrite the following English article as an X thread:
+Convert the following English article into a compelling X (Twitter) thread.
 
 Requirements:
-- 5 to 8 tweets
-- Each tweet must be under 280 characters
-- First tweet must be a high-impact hook that makes people want to read more
-- Last tweet should be a strong takeaway or call to action
-- Natural thread flow, each tweet should stand alone yet connect to the whole
-- Output ONLY a valid JSON array with no markdown code blocks, no explanation
-- Format: [{\"tweet\": \"...\", \"position\": 1}, {\"tweet\": \"...\", \"position\": 2}, ...]
+- 5 to 8 tweets total
+- First tweet: punchy hook — controversial or counterintuitive. Under 280 chars.
+- Middle tweets: one key idea each. Under 280 chars each.
+- Last tweet: CTA or thought-provoking closer
+- Each tweet self-contained and punchy
+- NO hashtags in individual tweets (2-3 only in last tweet if appropriate)
+- NO emojis unless genuinely impactful
+- NO "Thread", "1/", "/end" markers — just the content
+- IMPORTANT: Output ONLY a raw JSON array. No markdown, no code fences, no explanation.
+- Format: [{"tweet": "text", "position": 1}, ...]
 
-Article:
-
-${ARTICLE_EN_CONTENT}"
-
-  claude_generate "$PROMPT" "$PLATFORM_DIR/x_thread.json" "X Thread"
+Article:' \
+    "$EN_CONTENT" \
+    | claude -p --dangerously-skip-permissions --output-format text > "$OUT"
+  strip_code_fences "$OUT"
+  ok "x_thread.json ($(file_size "$OUT"))"
 }
 
-# ── X 单条 hot take ───────────────────────────────────────────────────────────
-phase3_x_post() {
-  local PROMPT="You are a thought leader on X (Twitter) with a talent for hot takes.
+# ── 3.5 X 单条 Hot Take ───────────────────────────────────────────────────────
+gen_x_post() {
+  local OUT="$PLATFORM_DIR/x_post.md"
+  if [[ -f "$OUT" ]]; then skip "x_post.md"; return; fi
+  info "生成 x_post.md (单条 hot take <280字)..."
 
-Please distill the following English article into a single, punchy X post:
+  printf '%s\n\n%s' \
+    'You are a master of viral one-tweet hot takes.
+
+Write ONE single tweet based on the core idea of this article.
 
 Requirements:
-- Under 280 characters
-- High-conviction, specific insight — not generic advice
-- Should make people stop scrolling
-- Can include a provocative question, a counterintuitive take, or a striking stat
+- Under 280 characters STRICTLY (count carefully)
+- Hot take: bold, slightly controversial, or counterintuitive
+- Native English voice
+- No hashtags, no emojis, no attribution
 - Output ONLY the tweet text, nothing else
 
-Article:
-
-${ARTICLE_EN_CONTENT}"
-
-  claude_generate "$PROMPT" "$PLATFORM_DIR/x_post.md" "X 单条"
+Article:' \
+    "$EN_CONTENT" \
+    | claude -p --dangerously-skip-permissions --output-format text > "$OUT"
+  local CHAR_COUNT
+  CHAR_COUNT=$(wc -m < "$OUT" | tr -d ' ')
+  if [[ $CHAR_COUNT -gt 300 ]]; then
+    warn "x_post.md 可能超过 280 字 (${CHAR_COUNT} chars)，请检查"
+  fi
+  ok "x_post.md (${CHAR_COUNT} chars)"
 }
 
-# 并行不行（bash 子进程 + set -e 有坑），顺序执行但捕获单个错误
-phase3_jike     || true
-phase3_xhs      || true
-phase3_wechat   || true
-phase3_x_thread || true
-phase3_x_post   || true
+gen_jike
+gen_xhs
+gen_wechat
+gen_x_thread
+gen_x_post
 
-log_ok "Phase 3 完成"
+ok "Phase 3 完成 → $PLATFORM_DIR"
 
-# ─── Phase 4: 视觉卡片 ───────────────────────────────────────────────────────
-phase "Phase 4: 视觉卡片 (generate-cards.sh)"
+# ─────────────────────────────────────────────────────────────────────────────
+# Phase 4: 卡片生成（复用已有 thumbnail）
+# ─────────────────────────────────────────────────────────────────────────────
+phase "Phase 4: 卡片生成"
 
-phase4_main() {
-  QUOTES_JSON="$OUTPUT_DIR/4_内容降维/quotes.json"
-  CARDS_DIR="$OUTPUT_DIR/4_内容降维/cards"
+run_phase4() {
+  local CARDS_DIR="$REPURPOSE_DIR/cards"
 
-  if [[ ! -f "$QUOTES_JSON" ]]; then
-    log_err "找不到 quotes.json: $QUOTES_JSON，跳过 Phase 4"
-    return 1
+  if [[ -d "$CARDS_DIR" ]] && compgen -G "$CARDS_DIR/*.png" > /dev/null 2>&1; then
+    local CARD_COUNT
+    CARD_COUNT=$(compgen -G "$CARDS_DIR/*.png" | wc -l | tr -d ' ')
+    skip "Phase 4 (cards/ 已有 ${CARD_COUNT} 张)"
+    return
   fi
 
-  # 检查是否已有卡片
-  CARD_COUNT=$(ls "$CARDS_DIR"/card_*.png 2>/dev/null | wc -l | tr -d ' ')
-  if [[ "$CARD_COUNT" -gt 0 ]]; then
-    log_skip "卡片已存在 ($CARD_COUNT 张)，跳过 Phase 4"
-    return 0
-  fi
-
-  log "运行 generate-cards.sh ..."
-  cd "$SCRIPT_DIR"
-  ./generate-cards.sh "$QUOTES_JSON"
-  log_ok "Phase 4 完成"
+  info "调用 generate-cards.sh..."
+  bash "$CARDS_SH" "$REPURPOSE_DIR/quotes.json"
+  ok "Phase 4 完成"
 }
 
-phase4_main || log_err "Phase 4 失败（非致命），继续..."
+run_phase4
 
-# ─── Phase 5: 生成 manifest.json ─────────────────────────────────────────────
+if [[ -f "$REPURPOSE_DIR/thumbnail.png" ]]; then
+  ok "Thumbnail: $REPURPOSE_DIR/thumbnail.png (复用)"
+fi
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Phase 5: 生成 manifest.json
+# ─────────────────────────────────────────────────────────────────────────────
 phase "Phase 5: 生成 manifest.json"
 
-phase5_main() {
-  MANIFEST="$OUTPUT_DIR/manifest.json"
+gen_manifest() {
+  local MANIFEST="$OUTPUT_DIR/manifest.json"
 
   if [[ -f "$MANIFEST" ]]; then
-    log_skip "manifest.json 已存在，重新生成..."
+    skip "manifest.json"
+    return
   fi
 
-  # 收集文件路径（相对于 OUTPUT_DIR）
-  rel() {
-    local F="$1"
-    if [[ -f "$F" ]]; then
-      # 输出相对 OUTPUT_DIR 的路径
-      realpath --relative-to="$OUTPUT_DIR" "$F" 2>/dev/null || python3 -c "
-import os, sys
-f, base = sys.argv[1], sys.argv[2]
-print(os.path.relpath(f, base))
-" "$F" "$OUTPUT_DIR"
-    else
-      echo "null"
-    fi
-  }
+  info "生成 manifest.json..."
 
-  # 视频文件
-  VIDEO_MASTER="null"
-  if [[ -n "$VIDEO_PATH" && -f "$VIDEO_PATH" ]]; then
-    VIDEO_MASTER="\"$(realpath "$VIDEO_PATH" 2>/dev/null || echo "$VIDEO_PATH")\""
+  local CARDS_JSON="[]"
+  if [[ -d "$REPURPOSE_DIR/cards" ]]; then
+    CARDS_JSON=$(CARDS_DIR="$REPURPOSE_DIR/cards" node -e '
+      const fs = require("fs");
+      const dir = process.env.CARDS_DIR;
+      try {
+        const files = fs.readdirSync(dir)
+          .filter(f => f.endsWith(".png"))
+          .sort()
+          .map(f => dir + "/" + f);
+        process.stdout.write(JSON.stringify(files));
+      } catch(e) { process.stdout.write("[]"); }
+    ' 2>/dev/null || echo "[]")
   fi
 
-  # 各 Phase 输出
-  THUMBNAIL=$(rel "$OUTPUT_DIR/4_内容降维/thumbnail.png")
-  PODCAST=$(rel "$OUTPUT_DIR/4_内容降维/podcast.mp3")
-  ARTICLE_CN_REL=$(rel "$OUTPUT_DIR/4_内容降维/article_cn.md")
-  VIDEO_META_REL=$(rel "$OUTPUT_DIR/4_内容降维/video_meta.json")
-
-  X_POST=$(rel "$PLATFORM_DIR/x_post.md")
-  X_THREAD=$(rel "$PLATFORM_DIR/x_thread.json")
-  WECHAT=$(rel "$PLATFORM_DIR/wechat_article.md")
-  JIKE=$(rel "$PLATFORM_DIR/jike_post.md")
-  XHS=$(rel "$PLATFORM_DIR/xhs_caption.md")
-
-  # 卡片列表
-  CARD_FILES=()
-  while IFS= read -r f; do
-    CARD_FILES+=("\"$(rel "$f")\"")
-  done < <(ls "$OUTPUT_DIR/4_内容降维/cards"/card_*.png 2>/dev/null | sort)
-  CARDS_JSON="[$(IFS=,; echo "${CARD_FILES[*]}")]"
-  if [[ ${#CARD_FILES[@]} -eq 0 ]]; then
-    CARDS_JSON="[]"
+  local THREAD_COUNT=0
+  if [[ -f "$PLATFORM_DIR/x_thread.json" ]]; then
+    THREAD_COUNT=$(THREAD_FILE="$PLATFORM_DIR/x_thread.json" node -e '
+      try {
+        const d = JSON.parse(require("fs").readFileSync(process.env.THREAD_FILE, "utf8"));
+        process.stdout.write(String(Array.isArray(d) ? d.length : 0));
+      } catch(e) { process.stdout.write("0"); }
+    ' 2>/dev/null || echo "0")
   fi
 
-  to_json_val() {
-    local v="$1"
-    if [[ "$v" == "null" ]]; then
-      echo "null"
-    else
-      echo "\"$v\""
-    fi
-  }
+  OUTPUT_DIR="$OUTPUT_DIR" \
+  REPURPOSE_DIR="$REPURPOSE_DIR" \
+  PLATFORM_DIR="$PLATFORM_DIR" \
+  CARDS_JSON="$CARDS_JSON" \
+  THREAD_COUNT="$THREAD_COUNT" \
+  node -e '
+    const fs   = require("fs");
+    const path = require("path");
+    const outputDir    = process.env.OUTPUT_DIR;
+    const repurposeDir = process.env.REPURPOSE_DIR;
+    const platformDir  = process.env.PLATFORM_DIR;
+    const cardsJson    = JSON.parse(process.env.CARDS_JSON || "[]");
+    const threadCount  = parseInt(process.env.THREAD_COUNT) || 0;
 
-  THUMBNAIL_JSON=$(to_json_val "$THUMBNAIL")
-  PODCAST_JSON=$(to_json_val "$PODCAST")
-  ARTICLE_CN_JSON=$(to_json_val "$ARTICLE_CN_REL")
-  VIDEO_META_JSON_VAL=$(to_json_val "$VIDEO_META_REL")
-  X_POST_JSON=$(to_json_val "$X_POST")
-  X_THREAD_JSON=$(to_json_val "$X_THREAD")
-  WECHAT_JSON=$(to_json_val "$WECHAT")
-  JIKE_JSON=$(to_json_val "$JIKE")
-  XHS_JSON=$(to_json_val "$XHS")
-
-  GENERATED_AT=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
-
-  cat > "$MANIFEST" <<MANIFEST_EOF
-{
-  "generated_at": "${GENERATED_AT}",
-  "output_dir": "${OUTPUT_DIR}",
-  "video": {
-    "master": ${VIDEO_MASTER},
-    "thumbnail": ${THUMBNAIL_JSON},
-    "meta": ${VIDEO_META_JSON_VAL}
-  },
-  "platforms": {
-    "x_post": {
-      "text": ${X_POST_JSON},
-      "image": ${THUMBNAIL_JSON},
-      "status": "pending"
-    },
-    "x_thread": {
-      "text": ${X_THREAD_JSON},
-      "status": "pending"
-    },
-    "x_article": {
-      "text": ${ARTICLE_CN_JSON},
-      "cover": ${THUMBNAIL_JSON},
-      "status": "pending"
-    },
-    "wechat": {
-      "html": ${WECHAT_JSON},
-      "cover": ${THUMBNAIL_JSON},
-      "status": "pending"
-    },
-    "jike": {
-      "text": ${JIKE_JSON},
-      "status": "pending"
-    },
-    "xhs": {
-      "text": ${XHS_JSON},
-      "images": ${CARDS_JSON},
-      "status": "pending"
-    },
-    "youtube": {
-      "video": ${VIDEO_MASTER},
-      "meta": ${VIDEO_META_JSON_VAL},
-      "status": "pending"
-    },
-    "bilibili": {
-      "video": ${VIDEO_MASTER},
-      "meta": ${VIDEO_META_JSON_VAL},
-      "status": "pending"
-    },
-    "podcast": {
-      "audio": ${PODCAST_JSON},
-      "meta": ${VIDEO_META_JSON_VAL},
-      "status": "pending"
+    function fi(p) {
+      if (!p || !fs.existsSync(p)) return null;
+      return { path: p, size_bytes: fs.statSync(p).size };
     }
-  }
-}
-MANIFEST_EOF
 
-  log_ok "manifest.json 生成完成"
-}
+    const manifest = {
+      generated_at: new Date().toISOString(),
+      output_dir: outputDir,
+      video: {
+        thumbnail: fi(path.join(repurposeDir, "thumbnail.png")),
+        status: "ready"
+      },
+      content: {
+        transcript:  fi(path.join(repurposeDir, "transcript.txt")),
+        article_cn:  fi(path.join(repurposeDir, "article_cn.md")),
+        article_en:  fi(path.join(repurposeDir, "article_en.md")),
+        video_meta:  fi(path.join(repurposeDir, "video_meta.json")),
+        quotes:      fi(path.join(repurposeDir, "quotes.json")),
+        podcast:     fi(path.join(repurposeDir, "podcast.mp3"))
+      },
+      platforms: {
+        jike: {
+          text:   fi(path.join(platformDir, "jike_post.md")),
+          status: "pending"
+        },
+        xhs: {
+          text:   fi(path.join(platformDir, "xhs_caption.md")),
+          images: cardsJson.map(p => fi(p)).filter(Boolean),
+          status: "pending"
+        },
+        wechat: {
+          text:   fi(path.join(platformDir, "wechat_article.md")),
+          cover:  fi(path.join(repurposeDir, "thumbnail.png")),
+          status: "pending"
+        },
+        x_post: {
+          text:   fi(path.join(platformDir, "x_post.md")),
+          image:  fi(path.join(repurposeDir, "thumbnail.png")),
+          status: "pending"
+        },
+        x_thread: {
+          text:        fi(path.join(platformDir, "x_thread.json")),
+          tweet_count: threadCount,
+          status:      "pending"
+        },
+        youtube: {
+          meta:      fi(path.join(repurposeDir, "video_meta.json")),
+          thumbnail: fi(path.join(repurposeDir, "thumbnail.png")),
+          status:    "pending"
+        },
+        bilibili: {
+          meta:      fi(path.join(repurposeDir, "video_meta.json")),
+          thumbnail: fi(path.join(repurposeDir, "thumbnail.png")),
+          status:    "pending"
+        },
+        podcast: {
+          audio:  fi(path.join(repurposeDir, "podcast.mp3")),
+          meta:   fi(path.join(repurposeDir, "video_meta.json")),
+          status: "pending"
+        }
+      }
+    };
 
-phase5_main
+    fs.writeFileSync(path.join(outputDir, "manifest.json"), JSON.stringify(manifest, null, 2));
+    console.log("manifest.json written ✓");
+  '
 
-# ─── Phase 6: 产出总结 ───────────────────────────────────────────────────────
-phase "Phase 6: 产出总结"
-
-phase6_main() {
-  PIPELINE_END=$(date +%s)
-  ELAPSED=$((PIPELINE_END - PIPELINE_START))
-  MINUTES=$((ELAPSED / 60))
-  SECONDS=$((ELAPSED % 60))
-
-  echo ""
-  echo -e "${BOLD}${GREEN}🎉 Pipeline 完成！ (耗时 ${MINUTES}m ${SECONDS}s)${RESET}"
-  echo -e "${BOLD}📂 输出目录: ${OUTPUT_DIR}${RESET}"
-  echo ""
-  echo -e "${BOLD}${CYAN}── 内容降维 ────────────────────────────────${RESET}"
-
-  print_file() {
-    local LABEL="$1"
-    local FILE="$2"
-    if [[ -f "$FILE" ]]; then
-      local SIZE
-      SIZE=$(ls -lh "$FILE" | awk '{print $5}')
-      echo -e "  ${GREEN}✅${RESET} ${LABEL} ${CYAN}(${SIZE})${RESET}"
-    else
-      echo -e "  ${RED}❌${RESET} ${LABEL} ${RED}(缺失)${RESET}"
-    fi
-  }
-
-  print_file "article_cn.md    " "$OUTPUT_DIR/4_内容降维/article_cn.md"
-  print_file "article_en.md    " "$OUTPUT_DIR/4_内容降维/article_en.md"
-  print_file "podcast.mp3      " "$OUTPUT_DIR/4_内容降维/podcast.mp3"
-  print_file "quotes.json      " "$OUTPUT_DIR/4_内容降维/quotes.json"
-  print_file "video_meta.json  " "$OUTPUT_DIR/4_内容降维/video_meta.json"
-  print_file "thumbnail.png    " "$OUTPUT_DIR/4_内容降维/thumbnail.png"
-
-  # 卡片
-  CARD_COUNT=$(ls "$OUTPUT_DIR/4_内容降维/cards"/card_*.png 2>/dev/null | wc -l | tr -d ' ')
-  if [[ "$CARD_COUNT" -gt 0 ]]; then
-    echo -e "  ${GREEN}✅${RESET} cards/           ${CYAN}(${CARD_COUNT} 张)${RESET}"
-  else
-    echo -e "  ${RED}❌${RESET} cards/           ${RED}(缺失)${RESET}"
-  fi
-
-  echo ""
-  echo -e "${BOLD}${CYAN}── 平台内容 ────────────────────────────────${RESET}"
-  print_file "jike_post.md     " "$PLATFORM_DIR/jike_post.md"
-  print_file "xhs_caption.md   " "$PLATFORM_DIR/xhs_caption.md"
-  print_file "wechat_article.md" "$PLATFORM_DIR/wechat_article.md"
-  print_file "x_thread.json    " "$PLATFORM_DIR/x_thread.json"
-  print_file "x_post.md        " "$PLATFORM_DIR/x_post.md"
-
-  echo ""
-  echo -e "${BOLD}${CYAN}── 索引 ────────────────────────────────────${RESET}"
-  print_file "manifest.json    " "$OUTPUT_DIR/manifest.json"
-
-  echo ""
-  echo -e "${BOLD}${YELLOW}下一步: 审核内容 → 发布到各平台${RESET}"
-  echo ""
+  ok "manifest.json → $OUTPUT_DIR/manifest.json"
 }
 
-phase6_main
+gen_manifest
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Phase 6: Summary
+# ─────────────────────────────────────────────────────────────────────────────
+phase "Phase 6: Summary"
+
+PIPELINE_END=$(date +%s)
+ELAPSED=$((PIPELINE_END - PIPELINE_START))
+ELAPSED_FMT=$(printf '%dm%ds' $((ELAPSED/60)) $((ELAPSED%60)))
+
+echo ""
+echo -e "${BOLD}${GREEN}🎉 Pipeline 完成！${RESET}  ${DIM}耗时: ${ELAPSED_FMT}${RESET}"
+echo -e "${DIM}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${RESET}"
+echo ""
+
+echo -e "${BOLD}📦 内容降维 (4_内容降维/)${RESET}"
+print_file "article_cn.md"   "$REPURPOSE_DIR/article_cn.md"
+print_file "article_en.md"   "$REPURPOSE_DIR/article_en.md"
+print_file "podcast.mp3"     "$REPURPOSE_DIR/podcast.mp3"
+print_file "quotes.json"     "$REPURPOSE_DIR/quotes.json"
+print_file "video_meta.json" "$REPURPOSE_DIR/video_meta.json"
+print_file "thumbnail.png"   "$REPURPOSE_DIR/thumbnail.png"
+
+if compgen -G "$REPURPOSE_DIR/cards/*.png" > /dev/null 2>&1; then
+  CARD_COUNT=$(compgen -G "$REPURPOSE_DIR/cards/*.png" | wc -l | tr -d ' ')
+  echo -e "  ${GREEN}✓${RESET} cards/  ${DIM}${CARD_COUNT} 张${RESET}"
+fi
+
+echo ""
+echo -e "${BOLD}📱 平台内容 (5_平台内容/)${RESET}"
+print_file "jike_post.md"      "$PLATFORM_DIR/jike_post.md"
+print_file "xhs_caption.md"    "$PLATFORM_DIR/xhs_caption.md"
+print_file "wechat_article.md" "$PLATFORM_DIR/wechat_article.md"
+print_file "x_thread.json"     "$PLATFORM_DIR/x_thread.json"
+print_file "x_post.md"         "$PLATFORM_DIR/x_post.md"
+
+echo ""
+echo -e "${BOLD}📋 Manifest${RESET}"
+print_file "manifest.json" "$OUTPUT_DIR/manifest.json"
+
+echo ""
+echo -e "${DIM}输出目录: $OUTPUT_DIR${RESET}"
+echo ""
