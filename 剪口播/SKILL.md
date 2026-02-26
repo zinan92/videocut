@@ -16,24 +16,43 @@ description: 视频转录和口误识别。生成审查稿和删除任务清单�
 # 或手动分步（见下方）
 ```
 
-## 输出目录结构
+## 输出目录结构（扁平）
 
 ```
 output/
 └── YYYY-MM-DD_视频名/
-    ├── 1_转录/
-    │   ├── audio.mp3
-    │   ├── whisper_result.json
-    │   └── subtitles_words.json
-    ├── 2_分析/
-    │   ├── readable.txt
-    │   ├── sentences.txt
-    │   ├── auto_selected.json
-    │   └── 口误分析.md
-    └── 3_审核/
-        ├── review.html
-        └── delete_segments.json
+    ├── 1_audio.mp3
+    ├── 1_volcengine_result.json
+    ├── 1_subtitles_words.json
+    ├── 2_readable.txt
+    ├── 2_sentences.txt
+    ├── 2_auto_selected.json
+    ├── 2_ai_analysis_raw.txt
+    ├── 3_review.html
+    ├── 3_delete_segments.json
+    ├── 3_output_cut.mp4
+    ├── 4_transcript.txt
+    ├── 4_article_cn.md
+    ├── 4_article_en.md
+    ├── 4_podcast.mp3
+    ├── 4_quotes.json
+    ├── 4_video_meta.json
+    ├── 4_thumbnail.png
+    ├── 4_card_1.png ... 4_card_N.png
+    ├── 5_jike_post.md
+    ├── 5_xhs_caption.md
+    ├── 5_wechat_article.md
+    ├── 5_x_thread.json
+    ├── 5_x_post.md
+    └── manifest.json
 ```
+
+文件前缀含义：
+- `1_` — 转录阶段（音频、原始转录、字幕）
+- `2_` — 分析阶段（可读格式、句子、标记列表）
+- `3_` — 审核阶段（审核页、删除列表、剪辑结果）
+- `4_` — 内容降维（文章、播客、封面、金句卡片）
+- `5_` — 平台内容（各平台发布文案）
 
 ## 流程
 
@@ -60,27 +79,25 @@ DATE=$(date +%Y-%m-%d)
 BASE_DIR="output/${DATE}_${VIDEO_NAME}"
 SCRIPT_DIR="$(cd "$(dirname "$0")/../剪口播/scripts" && pwd)"
 
-mkdir -p "$BASE_DIR/1_转录" "$BASE_DIR/2_分析" "$BASE_DIR/3_审核"
+mkdir -p "$BASE_DIR"
 cd "$BASE_DIR"
 ```
 
 ### 步骤 1-2: 转录
 
 ```bash
-cd 1_转录
-
 # 提取音频
-ffmpeg -i "file:$VIDEO_PATH" -vn -acodec libmp3lame -y audio.mp3
+ffmpeg -i "file:$VIDEO_PATH" -vn -acodec libmp3lame -y 1_audio.mp3
 
 # Whisper 本地转录（无需上传，无需 API Key）
-"$SCRIPT_DIR/whisper_transcribe.sh" audio.mp3 small
-# 输出: volcengine_result.json（兼容格式）
+"$SCRIPT_DIR/whisper_transcribe.sh" 1_audio.mp3 small
+# 输出: volcengine_result.json → 重命名
+mv volcengine_result.json 1_volcengine_result.json
 
 # 生成字级别字幕
-node "$SCRIPT_DIR/generate_subtitles.js" volcengine_result.json
-# 输出: subtitles_words.json
-
-cd ..
+node "$SCRIPT_DIR/generate_subtitles.js" 1_volcengine_result.json
+# 输出: subtitles_words.json → 重命名
+mv subtitles_words.json 1_subtitles_words.json
 ```
 
 ### 步骤 3: 分析口误（脚本+AI）
@@ -88,11 +105,9 @@ cd ..
 #### 3.1 生成易读格式 + 句子列表
 
 ```bash
-cd 2_分析
-
-# readable.txt
+# 2_readable.txt
 node -e "
-const data = require('../1_转录/subtitles_words.json');
+const data = require('${BASE_DIR}/1_subtitles_words.json');
 let output = [];
 data.forEach((w, i) => {
   if (w.isGap) {
@@ -102,12 +117,12 @@ data.forEach((w, i) => {
     output.push(i + '|' + w.text + '|' + w.start.toFixed(2) + '-' + w.end.toFixed(2));
   }
 });
-require('fs').writeFileSync('readable.txt', output.join('\n'));
+require('fs').writeFileSync('${BASE_DIR}/2_readable.txt', output.join('\n'));
 "
 
-# sentences.txt
+# 2_sentences.txt
 node -e "
-const data = require('../1_转录/subtitles_words.json');
+const data = require('${BASE_DIR}/1_subtitles_words.json');
 let sentences = [], curr = { text: '', startIdx: -1, endIdx: -1 };
 data.forEach((w, i) => {
   const isLongGap = w.isGap && (w.end - w.start) >= 0.5;
@@ -121,27 +136,28 @@ data.forEach((w, i) => {
   }
 });
 if (curr.text.length > 0) sentences.push(curr);
-sentences.forEach((s, i) => console.log(i + '|' + s.startIdx + '-' + s.endIdx + '|' + s.text));
-" > sentences.txt
+const lines = sentences.map((s, i) => i + '|' + s.startIdx + '-' + s.endIdx + '|' + s.text);
+require('fs').writeFileSync('${BASE_DIR}/2_sentences.txt', lines.join('\n'));
+"
 ```
 
 #### 3.2 自动标记静音
 
 ```bash
 node -e "
-const words = require('../1_转录/subtitles_words.json');
+const words = require('${BASE_DIR}/1_subtitles_words.json');
 const selected = [];
 words.forEach((w, i) => {
   if (w.isGap && (w.end - w.start) >= 0.5) selected.push(i);
 });
-require('fs').writeFileSync('auto_selected.json', JSON.stringify(selected, null, 2));
+require('fs').writeFileSync('${BASE_DIR}/2_auto_selected.json', JSON.stringify(selected, null, 2));
 console.log('≥0.5s静音数量:', selected.length);
 "
 ```
 
-#### 3.3 AI 分析口误（追加到 auto_selected.json）
+#### 3.3 AI 分析口误（追加到 2_auto_selected.json）
 
-读 `用户习惯/` 下的规则文件，分段读 readable.txt + sentences.txt 分析。
+读 `用户习惯/` 下的规则文件，分段读 2_readable.txt + 2_sentences.txt 分析。
 
 **检测规则（按优先级）**：
 
@@ -160,17 +176,17 @@ console.log('≥0.5s静音数量:', selected.length);
 ### 步骤 4-5: 审核 + 剪辑
 
 ```bash
-cd ../3_审核
-
-# 生成审核网页
+# 生成审核网页（输出到 BASE_DIR）
+cd "$BASE_DIR"
 node "$SCRIPT_DIR/generate_review.js" \
-  ../1_转录/subtitles_words.json \
-  ../2_分析/auto_selected.json \
-  ../1_转录/audio.mp3
+  1_subtitles_words.json \
+  2_auto_selected.json \
+  1_audio.mp3
+mv review.html 3_review.html
 
 # 启动审核服务器
 node "$SCRIPT_DIR/review_server.js" 8899 "$VIDEO_PATH"
-# 打开 http://localhost:8899
+# 打开 http://localhost:8899/3_review.html
 # 用户确认后点「执行剪辑」
 ```
 
@@ -179,8 +195,8 @@ node "$SCRIPT_DIR/review_server.js" 8899 "$VIDEO_PATH"
 ```bash
 # 将 idx 列表转为时间段
 node -e "
-const words = require('../1_转录/subtitles_words.json');
-const selected = require('../2_分析/auto_selected.json');
+const words = require('${BASE_DIR}/1_subtitles_words.json');
+const selected = require('${BASE_DIR}/2_auto_selected.json');
 const segs = [];
 for (const idx of selected) {
   const w = words[idx];
@@ -193,17 +209,17 @@ for (const seg of segs) {
     merged[merged.length-1].end = Math.max(merged[merged.length-1].end, seg.end);
   } else merged.push({...seg});
 }
-require('fs').writeFileSync('delete_segments.json', JSON.stringify(merged, null, 2));
+require('fs').writeFileSync('${BASE_DIR}/3_delete_segments.json', JSON.stringify(merged, null, 2));
 console.log(merged.length + ' segments, ' + merged.reduce((s,x) => s + x.end - x.start, 0).toFixed(1) + 's to delete');
 "
 
 # 执行剪辑
-bash "$SCRIPT_DIR/cut_video.sh" "$VIDEO_PATH" delete_segments.json output_cut.mp4
+bash "$SCRIPT_DIR/cut_video.sh" "$VIDEO_PATH" "${BASE_DIR}/3_delete_segments.json" "${BASE_DIR}/3_output_cut.mp4"
 ```
 
 ## 数据格式
 
-### subtitles_words.json
+### 1_subtitles_words.json
 ```json
 [
   {"text": "大", "start": 0.12, "end": 0.2, "isGap": false},
@@ -211,7 +227,7 @@ bash "$SCRIPT_DIR/cut_video.sh" "$VIDEO_PATH" delete_segments.json output_cut.mp
 ]
 ```
 
-### auto_selected.json
+### 2_auto_selected.json
 ```json
 [72, 85, 120]
 ```

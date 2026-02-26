@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # generate-cards.sh
-# 输入：quotes.json（路径通过参数传入，默认找同级 4_内容降维/quotes.json）
-# 输出：4_内容降维/cards/card_1.png, card_2.png ...
+# 输入：4_quotes.json（路径通过参数传入，默认找同级 4_quotes.json）
+# 输出：4_card_1.png, 4_card_2.png ... （与 quotes.json 同目录）
 # 方案：HTML 模板 + Chrome Headless 截图
 
 set -euo pipefail
@@ -13,35 +13,30 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 # 参数解析
 # ──────────────────────────────────────────────
 # 用法：
-#   generate-cards.sh <quotes.json>
-#   generate-cards.sh             # 自动找 ./4_内容降维/quotes.json
-#
-# 脚本也可以放在 output/<date>.mov/ 目录下运行，
-# 会自动向下寻找 4_内容降维/quotes.json
+#   generate-cards.sh <4_quotes.json>
+#   generate-cards.sh             # 自动找 ./4_quotes.json
 
 QUOTES_JSON="${1:-}"
 
 if [[ -z "$QUOTES_JSON" ]]; then
   # 从当前目录自动查找
-  QUOTES_JSON="$(find . -path "*/4_内容降维/quotes.json" | head -1)"
+  QUOTES_JSON="$(find . -name "4_quotes.json" | head -1)"
 fi
 
 if [[ -z "$QUOTES_JSON" || ! -f "$QUOTES_JSON" ]]; then
-  echo "❌ 找不到 quotes.json，用法：$0 <path/to/quotes.json>"
+  echo "❌ 找不到 4_quotes.json，用法：$0 <path/to/4_quotes.json>"
   exit 1
 fi
 
 QUOTES_JSON="$(realpath "$QUOTES_JSON")"
 BASE_DIR="$(dirname "$QUOTES_JSON")"
-CARDS_DIR="$BASE_DIR/cards"
 
-mkdir -p "$CARDS_DIR"
-echo "📂 输出目录：$CARDS_DIR"
+echo "📂 输出目录：$BASE_DIR"
 
 # ──────────────────────────────────────────────
 # 用 node 解析 JSON，逐条生成 HTML + 截图
 # ──────────────────────────────────────────────
-node - "$QUOTES_JSON" "$CARDS_DIR" "$CHROME" <<'NODE_SCRIPT'
+node - "$QUOTES_JSON" "$BASE_DIR" "$CHROME" <<'NODE_SCRIPT'
 const fs   = require('fs');
 const path = require('path');
 const { execSync } = require('child_process');
@@ -133,7 +128,7 @@ function buildHtml(quote, context) {
 
   /* 引号装饰 */
   .quote::before {
-    content: '"';
+    content: '\u201c';
     color: #e94560;
     font-size: 80px;
     font-weight: 900;
@@ -217,10 +212,10 @@ let success = 0;
 let fail = 0;
 
 quotes.forEach((item, i) => {
-  const idx  = i + 1;
-  const html = buildHtml(item.quote, item.context);
-  const htmlPath  = path.join(tmpDir, `card_${idx}.html`);
-  const cardPath  = path.join(cardsDir, `card_${idx}.png`);
+  const idx      = i + 1;
+  const html     = buildHtml(item.quote, item.context);
+  const htmlPath = path.join(tmpDir, `card_${idx}.html`);
+  const cardPath = path.join(cardsDir, `4_card_${idx}.png`);
 
   fs.writeFileSync(htmlPath, html, 'utf8');
 
@@ -236,10 +231,10 @@ quotes.forEach((item, i) => {
       "file://${htmlPath}" \
       2>/dev/null`, { stdio: 'pipe' });
 
-    console.log(`✅ card_${idx}.png  →  ${item.quote.slice(0, 20)}...`);
+    console.log(`✅ 4_card_${idx}.png  →  ${item.quote.slice(0, 20)}...`);
     success++;
   } catch(e) {
-    console.error(`❌ card_${idx} 失败：${e.message}`);
+    console.error(`❌ 4_card_${idx} 失败：${e.message}`);
     fail++;
   }
 });

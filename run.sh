@@ -36,7 +36,6 @@ VIDEO_PATH="$(cd "$(dirname "$VIDEO_PATH")" && pwd)/$(basename "$VIDEO_PATH")"
 SCRIPT_DIR="$(cd "$(dirname "$0")/剪口播/scripts" && pwd)"
 VIDEO_NAME=$(basename "$VIDEO_PATH" .mp4)
 DATE=$(date +%Y-%m-%d)
-# Use absolute path so BASE_DIR stays valid after any cd into subdirectories
 BASE_DIR="$(cd "$(dirname "$0")" && pwd)/output/${DATE}_${VIDEO_NAME}"
 
 echo "🎬 videocut — 一键处理"
@@ -44,33 +43,36 @@ echo "📹 视频: $VIDEO_PATH"
 echo "📂 输出: $BASE_DIR"
 echo ""
 
-# Step 0: Create dirs
-mkdir -p "$BASE_DIR/1_转录" "$BASE_DIR/2_分析" "$BASE_DIR/3_审核"
+# Step 0: Create flat output dir
+mkdir -p "$BASE_DIR"
 
 # Step 1: Extract audio
 echo "═══ 步骤 1: 提取音频 ═══"
-ffmpeg -i "file:$VIDEO_PATH" -vn -acodec libmp3lame -y "$BASE_DIR/1_转录/audio.mp3" 2>/dev/null
-echo "✅ audio.mp3"
+ffmpeg -i "file:$VIDEO_PATH" -vn -acodec libmp3lame -y "$BASE_DIR/1_audio.mp3" 2>/dev/null
+echo "✅ 1_audio.mp3"
 
 # Step 2: Whisper transcribe
+# Must cd to BASE_DIR so whisper_transcribe.sh writes volcengine_result.json here
 echo ""
 echo "═══ 步骤 2: Whisper 转录 (model: $MODEL) ═══"
-cd "$BASE_DIR/1_转录"
-"$SCRIPT_DIR/whisper_transcribe.sh" audio.mp3 "$MODEL"
+cd "$BASE_DIR"
+"$SCRIPT_DIR/whisper_transcribe.sh" "1_audio.mp3" "$MODEL"
+mv "volcengine_result.json" "1_volcengine_result.json"
 
 # Step 3: Generate word-level subtitles
+# generate_subtitles.js writes subtitles_words.json to cwd ($BASE_DIR)
 echo ""
 echo "═══ 步骤 3: 生成字级别字幕 ═══"
-node "$SCRIPT_DIR/generate_subtitles.js" volcengine_result.json
+node "$SCRIPT_DIR/generate_subtitles.js" "${BASE_DIR}/1_volcengine_result.json"
+mv "${BASE_DIR}/subtitles_words.json" "${BASE_DIR}/1_subtitles_words.json"
 
 # Step 4: Analysis
 echo ""
 echo "═══ 步骤 4: 分析 ═══"
-cd "$BASE_DIR/2_分析"
 
-# readable.txt
+# 2_readable.txt
 node -e "
-const data = require('../1_转录/subtitles_words.json');
+const data = require('${BASE_DIR}/1_subtitles_words.json');
 let output = [];
 data.forEach((w, i) => {
   if (w.isGap) {
@@ -80,13 +82,13 @@ data.forEach((w, i) => {
     output.push(i + '|' + w.text + '|' + w.start.toFixed(2) + '-' + w.end.toFixed(2));
   }
 });
-require('fs').writeFileSync('readable.txt', output.join('\n'));
-console.log('📝 readable.txt:', output.length, 'lines');
+require('fs').writeFileSync('${BASE_DIR}/2_readable.txt', output.join('\n'));
+console.log('📝 2_readable.txt:', output.length, 'lines');
 "
 
-# sentences.txt
+# 2_sentences.txt
 node -e "
-const data = require('../1_转录/subtitles_words.json');
+const data = require('${BASE_DIR}/1_subtitles_words.json');
 let sentences = [], curr = { text: '', startIdx: -1, endIdx: -1 };
 data.forEach((w, i) => {
   const isLongGap = w.isGap && (w.end - w.start) >= 0.5;
@@ -101,42 +103,110 @@ data.forEach((w, i) => {
 });
 if (curr.text.length > 0) sentences.push(curr);
 const lines = sentences.map((s, i) => i + '|' + s.startIdx + '-' + s.endIdx + '|' + s.text);
-require('fs').writeFileSync('sentences.txt', lines.join('\n'));
-console.log('📝 sentences.txt:', sentences.length, 'sentences');
+require('fs').writeFileSync('${BASE_DIR}/2_sentences.txt', lines.join('\n'));
+console.log('📝 2_sentences.txt:', sentences.length, 'sentences');
 "
 
-# Auto-mark silence
+# Auto-mark silence → 2_auto_selected.json
 node -e "
-const words = require('../1_转录/subtitles_words.json');
+const words = require('${BASE_DIR}/1_subtitles_words.json');
 const selected = [];
 words.forEach((w, i) => {
   if (w.isGap && (w.end - w.start) >= 0.5) selected.push(i);
 });
-require('fs').writeFileSync('auto_selected.json', JSON.stringify(selected, null, 2));
-console.log('🔇 auto_selected.json: ≥0.5s静音', selected.length, '段');
+require('fs').writeFileSync('${BASE_DIR}/2_auto_selected.json', JSON.stringify(selected, null, 2));
+console.log('🔇 2_auto_selected.json: ≥0.5s静音', selected.length, '段');
 "
 
+# Step 4b: AI 口误分析
 echo ""
-echo "⚠️  AI 口误分析需要手动执行（读规则 + 分段分析 readable.txt）"
-echo "    或直接用当前静音标记继续剪辑"
+echo "═══ 步骤 4b: AI 口误分析 ═══"
+RULES_DIR="$(cd "$(dirname "$0")/剪口播/用户习惯" && pwd)"
+
+# Build rules context
+RULES_CONTEXT=""
+for rule_file in "$RULES_DIR"/[1-9]*.md; do
+  RULES_CONTEXT+="$(cat "$rule_file")"$'\n\n'
+done
+
+# Build prompt for AI analysis
+AI_PROMPT="你是视频口误分析专家。根据以下规则，分析 readable.txt 和 sentences.txt，找出所有应该删除的片段。
+
+## 规则
+${RULES_CONTEXT}
+
+## readable.txt（idx|内容|时间范围）
+$(cat "${BASE_DIR}/2_readable.txt")
+
+## sentences.txt（句号|startIdx-endIdx|句子文本）
+$(cat "${BASE_DIR}/2_sentences.txt")
+
+## 当前已标记的静音段（idx 列表）
+$(cat "${BASE_DIR}/2_auto_selected.json")
+
+## 输出要求
+
+分析完成后，输出一个 JSON 数组，包含所有应该**新增**删除的 idx（不要包含已在 auto_selected.json 中的静音段）。
+
+格式：纯 JSON 数组，不要代码围栏，不要解释。
+例如：[12, 13, 14, 28, 29, 30]
+
+每个 idx 对应 readable.txt 中的 idx 值（第一列）。如果要删整句，列出句子范围内的所有 idx。
+
+重要：
+- 行号 ≠ idx，用 readable.txt 第一列的 idx 值
+- 删前保后：后说的通常更完整
+- 残句要整句删除（startIdx 到 endIdx 的所有 idx）
+- 不要删除正常内容，宁可漏删不可误删"
+
+echo "$AI_PROMPT" | claude -p --dangerously-skip-permissions --output-format text > "${BASE_DIR}/2_ai_analysis_raw.txt" 2>/dev/null
+
+# Parse AI output: extract JSON array, merge with auto_selected
+node -e "
+const fs = require('fs');
+const autoSelected = JSON.parse(fs.readFileSync('${BASE_DIR}/2_auto_selected.json', 'utf8'));
+
+// Extract JSON array from AI output
+let raw = fs.readFileSync('${BASE_DIR}/2_ai_analysis_raw.txt', 'utf8').trim();
+// Strip code fences if present
+raw = raw.replace(/^\`\`\`[a-z]*\n?/m, '').replace(/\n?\`\`\`\s*$/m, '').trim();
+
+let aiIdx = [];
+try {
+  aiIdx = JSON.parse(raw);
+  if (!Array.isArray(aiIdx)) aiIdx = [];
+  // Filter to valid integers only
+  aiIdx = aiIdx.filter(x => Number.isInteger(x) && x >= 0);
+} catch(e) {
+  console.error('⚠️  AI 分析输出解析失败，仅使用静音标记');
+  console.error('Raw output:', raw.slice(0, 200));
+}
+
+// Merge and deduplicate
+const merged = [...new Set([...autoSelected, ...aiIdx])].sort((a,b) => a - b);
+fs.writeFileSync('${BASE_DIR}/2_auto_selected.json', JSON.stringify(merged, null, 2));
+console.log('🤖 AI 口误分析: 新增', aiIdx.length, '个标记');
+console.log('📊 合并后总计:', merged.length, '个删除标记 (静音', autoSelected.length, '+ AI', aiIdx.length, ')');
+"
 
 # Step 5: Generate review page
+# generate_review.js writes review.html and audio.mp3 to cwd ($BASE_DIR)
 echo ""
 echo "═══ 步骤 5: 生成审核网页 ═══"
-cd "$BASE_DIR/3_审核"
 node "$SCRIPT_DIR/generate_review.js" \
-  ../1_转录/subtitles_words.json \
-  ../2_分析/auto_selected.json \
-  ../1_转录/audio.mp3
+  "${BASE_DIR}/1_subtitles_words.json" \
+  "${BASE_DIR}/2_auto_selected.json" \
+  "${BASE_DIR}/1_audio.mp3"
+mv "${BASE_DIR}/review.html" "${BASE_DIR}/3_review.html"
 
 if [ "$NO_SERVER" = true ]; then
   echo ""
   echo "═══ 步骤 6: 直接剪辑（跳过审核）═══"
-  
-  # Convert idx list to time segments
+
+  # Convert idx list to time segments → 3_delete_segments.json
   node -e "
-  const words = require('../1_转录/subtitles_words.json');
-  const selected = require('../2_分析/auto_selected.json');
+  const words = require('${BASE_DIR}/1_subtitles_words.json');
+  const selected = require('${BASE_DIR}/2_auto_selected.json');
   const segs = [];
   for (const idx of selected) {
     const w = words[idx];
@@ -149,15 +219,15 @@ if [ "$NO_SERVER" = true ]; then
       merged[merged.length-1].end = Math.max(merged[merged.length-1].end, seg.end);
     } else merged.push({...seg});
   }
-  require('fs').writeFileSync('delete_segments.json', JSON.stringify(merged, null, 2));
+  require('fs').writeFileSync('${BASE_DIR}/3_delete_segments.json', JSON.stringify(merged, null, 2));
   console.log('✂️ ', merged.length, 'segments,', merged.reduce((s,x) => s + x.end - x.start, 0).toFixed(1) + 's to delete');
   "
-  
-  bash "$SCRIPT_DIR/cut_video.sh" "$VIDEO_PATH" delete_segments.json "$BASE_DIR/output_cut.mp4"
+
+  bash "$SCRIPT_DIR/cut_video.sh" "$VIDEO_PATH" "${BASE_DIR}/3_delete_segments.json" "${BASE_DIR}/3_output_cut.mp4"
 else
   echo ""
   echo "═══ 步骤 6: 启动审核服务器 ═══"
-  echo "🌐 http://localhost:8899"
+  echo "🌐 http://localhost:8899/3_review.html"
   echo "   播放 → 确认 → 点击「执行剪辑」"
   echo ""
   node "$SCRIPT_DIR/review_server.js" 8899 "$VIDEO_PATH"

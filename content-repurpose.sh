@@ -6,11 +6,14 @@
 #   output_dir: videocut 输出目录（如 ./output/2026-02-26_xxx/）
 #   video_path: 原视频路径（可选，不填则自动推断）
 #
-# 输出到 output_dir/4_内容降维/:
-#   article_cn.md  — 中文文章（公众号/即刻风格）
-#   article_en.md  — 英文文章（Medium/Substack 风格）
-#   podcast.mp3    — 规范化音频（-16 LUFS）
-#   quotes.json    — 3-5 句金句
+# 输出到 output_dir/ (前缀 4_):
+#   4_transcript.txt  — 纯文字转录稿
+#   4_article_cn.md   — 中文文章（公众号/即刻风格）
+#   4_article_en.md   — 英文文章（Medium/Substack 风格）
+#   4_podcast.mp3     — 规范化音频（-16 LUFS）
+#   4_quotes.json     — 3-5 句金句
+#   4_video_meta.json — 视频元数据
+#   4_thumbnail.png   — 封面图
 #
 
 set -e
@@ -26,19 +29,16 @@ fi
 
 # Resolve to absolute path
 OUTPUT_DIR="$(cd "$OUTPUT_DIR" && pwd)"
-TRANSCRIPT_JSON="$OUTPUT_DIR/1_转录/volcengine_result.json"
-REPURPOSE_DIR="$OUTPUT_DIR/4_内容降维"
+TRANSCRIPT_JSON="$OUTPUT_DIR/1_volcengine_result.json"
 
 if [ ! -f "$TRANSCRIPT_JSON" ]; then
   echo "❌ 找不到转录文件: $TRANSCRIPT_JSON"
   exit 1
 fi
 
-mkdir -p "$REPURPOSE_DIR"
-
 echo "🎬 content-repurpose — 一键内容降维"
 echo "📂 输入: $OUTPUT_DIR"
-echo "📂 输出: $REPURPOSE_DIR"
+echo "📂 输出: $OUTPUT_DIR"
 echo ""
 
 # ─── 步骤 A: 提取纯文字转录稿 ───────────────────────────────────────────────
@@ -50,9 +50,9 @@ with open('$TRANSCRIPT_JSON', 'r') as f:
 text = '\n'.join(u['text'] for u in d['utterances'])
 print(text)
 ")
-echo "$TRANSCRIPT" > "$REPURPOSE_DIR/transcript.txt"
+echo "$TRANSCRIPT" > "$OUTPUT_DIR/4_transcript.txt"
 WORD_COUNT=$(echo "$TRANSCRIPT" | wc -c | tr -d ' ')
-echo "✅ transcript.txt (${WORD_COUNT} chars)"
+echo "✅ 4_transcript.txt (${WORD_COUNT} chars)"
 
 # ─── 步骤 B: 中文文章（公众号/即刻风格）──────────────────────────────────────
 echo ""
@@ -73,8 +73,8 @@ CN_PROMPT="你是一位专业的内容创作者，擅长公众号和即刻文章
 
 ${TRANSCRIPT}"
 
-echo "$CN_PROMPT" | claude -p --dangerously-skip-permissions > "$REPURPOSE_DIR/article_cn.md"
-echo "✅ article_cn.md"
+echo "$CN_PROMPT" | claude -p --dangerously-skip-permissions > "$OUTPUT_DIR/4_article_cn.md"
+echo "✅ 4_article_cn.md"
 
 # ─── 步骤 C: 英文文章（Medium/Substack 风格）─────────────────────────────────
 echo ""
@@ -96,8 +96,8 @@ Transcript:
 
 ${TRANSCRIPT}"
 
-echo "$EN_PROMPT" | claude -p --dangerously-skip-permissions > "$REPURPOSE_DIR/article_en.md"
-echo "✅ article_en.md"
+echo "$EN_PROMPT" | claude -p --dangerously-skip-permissions > "$OUTPUT_DIR/4_article_en.md"
+echo "✅ 4_article_en.md"
 
 # ─── 步骤 D: 提取播客音频（-16 LUFS 规范化）─────────────────────────────────
 echo ""
@@ -127,23 +127,23 @@ if [ -n "$VIDEO_PATH" ] && [ -f "$VIDEO_PATH" ]; then
     -vn \
     -af "loudnorm=I=-16:TP=-1.5:LRA=11" \
     -acodec libmp3lame -q:a 2 \
-    -y "$REPURPOSE_DIR/podcast.mp3" 2>/dev/null
-  echo "✅ podcast.mp3 (原视频提取，loudnorm -16 LUFS)"
+    -y "$OUTPUT_DIR/4_podcast.mp3" 2>/dev/null
+  echo "✅ 4_podcast.mp3 (原视频提取，loudnorm -16 LUFS)"
 else
-  echo "   ⚠️  未找到原视频，从已有 audio.mp3 规范化..."
-  AUDIO_SRC="$OUTPUT_DIR/1_转录/audio.mp3"
+  echo "   ⚠️  未找到原视频，从已有 1_audio.mp3 规范化..."
+  AUDIO_SRC="$OUTPUT_DIR/1_audio.mp3"
   if [ -f "$AUDIO_SRC" ]; then
     ffmpeg -i "$AUDIO_SRC" \
       -af "loudnorm=I=-16:TP=-1.5:LRA=11" \
       -acodec libmp3lame -q:a 2 \
-      -y "$REPURPOSE_DIR/podcast.mp3" 2>/dev/null
-    echo "✅ podcast.mp3 (从 audio.mp3 规范化，loudnorm -16 LUFS)"
+      -y "$OUTPUT_DIR/4_podcast.mp3" 2>/dev/null
+    echo "✅ 4_podcast.mp3 (从 1_audio.mp3 规范化，loudnorm -16 LUFS)"
   else
-    echo "❌ 无法提取音频（原视频和 audio.mp3 均不存在），跳过"
+    echo "❌ 无法提取音频（原视频和 1_audio.mp3 均不存在），跳过"
   fi
 fi
 
-# ─── 步骤 E: 提取金句 → quotes.json ──────────────────────────────────────────
+# ─── 步骤 E: 提取金句 → 4_quotes.json ──────────────────────────────────────
 echo ""
 echo "═══ 步骤 E: 提取金句 ═══"
 QUOTES_PROMPT='从下面的转录稿中提取 3-5 句最有价值的金句。
@@ -158,14 +158,14 @@ QUOTES_PROMPT='从下面的转录稿中提取 3-5 句最有价值的金句。
 
 '"${TRANSCRIPT}"
 
-echo "$QUOTES_PROMPT" | claude -p --dangerously-skip-permissions > "$REPURPOSE_DIR/quotes.json"
-echo "✅ quotes.json"
+echo "$QUOTES_PROMPT" | claude -p --dangerously-skip-permissions > "$OUTPUT_DIR/4_quotes.json"
+echo "✅ 4_quotes.json"
 
 # ─── 步骤 F: 生成视频封面 + 元数据 ──────────────────────────────────────────
 echo ""
 echo "═══ 步骤 F: 生成视频元数据 + 封面 ═══"
 
-ARTICLE_CN="$REPURPOSE_DIR/article_cn.md"
+ARTICLE_CN="$OUTPUT_DIR/4_article_cn.md"
 ARTICLE_CN_CONTENT=""
 if [ -f "$ARTICLE_CN" ]; then
   ARTICLE_CN_CONTENT=$(cat "$ARTICLE_CN")
@@ -206,16 +206,23 @@ ${ARTICLE_CN_CONTENT}
 - hook.cn：1句话，极度吸引眼球，适合放在封面大字（10-20字）
 - hook.en：1 sentence, for thumbnail overlay text"
 
-echo "$META_PROMPT" | claude -p --dangerously-skip-permissions > "$REPURPOSE_DIR/video_meta.json"
-echo "✅ video_meta.json"
+echo "$META_PROMPT" | claude -p --dangerously-skip-permissions --output-format text > "$OUTPUT_DIR/4_video_meta.json"
+# Strip code fences if claude wrapped the JSON
+node -e "
+const fs = require('fs');
+let c = fs.readFileSync('$OUTPUT_DIR/4_video_meta.json', 'utf8');
+c = c.replace(/^\`\`\`[a-z]*\n?/m, '').replace(/\n?\`\`\`\s*$/m, '').trim();
+fs.writeFileSync('$OUTPUT_DIR/4_video_meta.json', c);
+"
+echo "✅ 4_video_meta.json"
 
-# ─── 步骤 F2: 生成封面图 thumbnail.png ──────────────────────────────────────
+# ─── 步骤 F2: 生成封面图 4_thumbnail.png ────────────────────────────────────
 echo ""
 echo "═══ 步骤 F2: 生成封面图 ═══"
 
 CHROME="/Applications/Google Chrome.app/Contents/MacOS/Google Chrome"
 
-node - "$REPURPOSE_DIR/video_meta.json" "$REPURPOSE_DIR/thumbnail.png" "$CHROME" <<'THUMBNAIL_SCRIPT'
+node - "$OUTPUT_DIR/4_video_meta.json" "$OUTPUT_DIR/4_thumbnail.png" "$CHROME" <<'THUMBNAIL_SCRIPT'
 const fs = require('fs');
 const path = require('path');
 const { execSync } = require('child_process');
@@ -227,7 +234,7 @@ let meta;
 try {
   meta = JSON.parse(fs.readFileSync(metaPath, 'utf8'));
 } catch(e) {
-  console.error('❌ 解析 video_meta.json 失败:', e.message);
+  console.error('❌ 解析 4_video_meta.json 失败:', e.message);
   process.exit(1);
 }
 
@@ -440,7 +447,7 @@ try {
     --screenshot="${outPath}" \
     "file://${htmlPath}" \
     2>/dev/null`, { stdio: 'pipe' });
-  console.log('✅ thumbnail.png (1280x720)');
+  console.log('✅ 4_thumbnail.png (1280x720)');
 } catch(e) {
   console.error('❌ 截图失败:', e.message);
   process.exit(1);
@@ -453,6 +460,6 @@ THUMBNAIL_SCRIPT
 echo ""
 echo "═══════════════════════════════════════"
 echo "✅ 内容降维完成"
-echo "📂 $REPURPOSE_DIR"
+echo "📂 $OUTPUT_DIR"
 echo ""
-ls -lh "$REPURPOSE_DIR"
+ls -lh "$OUTPUT_DIR"/4_*
