@@ -56,6 +56,56 @@ const server = http.createServer((req, res) => {
         fs.writeFileSync('delete_segments.json', JSON.stringify(deleteList, null, 2));
         console.log(`📝 保存 ${deleteList.length} 个删除片段`);
 
+        // ── Feedback Loop: 对比 AI 建议 vs 用户最终选择 ──
+        const baseDir = process.cwd();
+        const autoSelectedPath = path.join(baseDir, '2_auto_selected.json');
+        const wordsPath = path.join(baseDir, '1_subtitles_words.json');
+
+        if (fs.existsSync(autoSelectedPath) && fs.existsSync(wordsPath)) {
+          try {
+            const aiSelected = new Set(JSON.parse(fs.readFileSync(autoSelectedPath, 'utf8')));
+            const wordsData = JSON.parse(fs.readFileSync(wordsPath, 'utf8'));
+
+            // 从 deleteList (时间段) 反推用户选中的 word indices
+            const userSelected = new Set();
+            for (const seg of deleteList) {
+              wordsData.forEach((w, i) => {
+                if (w.start >= seg.start - 0.01 && w.end <= seg.end + 0.01) {
+                  userSelected.add(i);
+                }
+              });
+            }
+
+            // AI 建议删但用户恢复的（误删）
+            const aiOverDeleted = [...aiSelected].filter(i => !userSelected.has(i));
+            // 用户新增删除的（AI 漏删）
+            const aiUnderDeleted = [...userSelected].filter(i => !aiSelected.has(i));
+
+            const feedback = {
+              timestamp: new Date().toISOString(),
+              total_words: wordsData.length,
+              ai_selected_count: aiSelected.size,
+              user_selected_count: userSelected.size,
+              ai_over_deleted: aiOverDeleted.map(i => ({
+                idx: i,
+                text: wordsData[i]?.text || `[gap ${(wordsData[i]?.end - wordsData[i]?.start).toFixed(2)}s]`,
+                time: `${wordsData[i]?.start.toFixed(2)}-${wordsData[i]?.end.toFixed(2)}`
+              })),
+              ai_under_deleted: aiUnderDeleted.map(i => ({
+                idx: i,
+                text: wordsData[i]?.text || `[gap ${(wordsData[i]?.end - wordsData[i]?.start).toFixed(2)}s]`,
+                time: `${wordsData[i]?.start.toFixed(2)}-${wordsData[i]?.end.toFixed(2)}`
+              }))
+            };
+
+            const feedbackPath = path.join(baseDir, '3_feedback.json');
+            fs.writeFileSync(feedbackPath, JSON.stringify(feedback, null, 2));
+            console.log(`📊 Feedback: AI误删 ${aiOverDeleted.length}, AI漏删 ${aiUnderDeleted.length} → 3_feedback.json`);
+          } catch (feedbackErr) {
+            console.warn('⚠️ Feedback 生成失败:', feedbackErr.message);
+          }
+        }
+
         // 生成输出文件名
         const baseName = path.basename(VIDEO_FILE, '.mp4');
         const outputFile = `${baseName}_cut.mp4`;
