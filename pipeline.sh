@@ -398,11 +398,50 @@ Article:' \
   ok "5_x_post.md (${CHAR_COUNT} chars)"
 }
 
-gen_jike
-gen_xhs
-gen_wechat
-gen_x_thread
-gen_x_post
+# ── 并行执行 5 个平台内容生成 ────────────────────────────────────────────────
+info "并行生成 5 个平台内容..."
+
+LOG_DIR=$(mktemp -d)
+PIDS=()
+NAMES=()
+
+run_parallel() {
+  local name="$1"
+  local func="$2"
+  local logfile="$LOG_DIR/${name}.log"
+  (
+    set +e
+    $func > "$logfile" 2>&1
+    echo $? > "$LOG_DIR/${name}.exit"
+  ) &
+  PIDS+=($!)
+  NAMES+=("$name")
+}
+
+run_parallel "jike"      gen_jike
+run_parallel "xhs"       gen_xhs
+run_parallel "wechat"    gen_wechat
+run_parallel "x_thread"  gen_x_thread
+run_parallel "x_post"    gen_x_post
+
+# 等待全部完成
+FAILED=0
+for i in "${!PIDS[@]}"; do
+  wait "${PIDS[$i]}" 2>/dev/null
+  EXIT_CODE=$(cat "$LOG_DIR/${NAMES[$i]}.exit" 2>/dev/null || echo "1")
+  # 打印该任务的日志
+  cat "$LOG_DIR/${NAMES[$i]}.log" 2>/dev/null
+  if [[ "$EXIT_CODE" != "0" ]]; then
+    err "${NAMES[$i]} 生成失败 (exit $EXIT_CODE)"
+    FAILED=$((FAILED + 1))
+  fi
+done
+
+rm -rf "$LOG_DIR"
+
+if [[ $FAILED -gt 0 ]]; then
+  warn "$FAILED 个平台内容生成失败，但继续执行"
+fi
 
 ok "Phase 3 完成 → $OUTPUT_DIR"
 
