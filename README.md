@@ -117,6 +117,34 @@ cd videocut
 | Phase 4 | `generate-cards.sh` | `4_quotes.json` | 1080x1080 金句卡片 PNG | HTML 模板 + Chrome Headless 截图，@xparkzz 水印 |
 | Phase 5 | `pipeline.sh` 内置 | 全部产物 | `manifest.json` | 结构化清单，含各平台发布状态 |
 | Phase 6 | `pipeline.sh` 内置 | — | 终端 Summary | 打印所有产物及文件大小 |
+| Phase 7 | `publish.sh` | 全部产物 | 4 平台发布 | 半自动引导发布到抖音/小红书/公众号/X |
+
+### 发布
+
+Pipeline 生成内容后，使用 `publish.sh` 半自动发布到各平台：
+
+```bash
+# 独立使用
+./publish.sh output/2026-03-18_video/
+
+# 或集成到 pipeline（生产 + 发布一条龙）
+./pipeline.sh video.mp4 --publish
+
+# 只发布特定平台
+./publish.sh output/2026-03-18_video/ --platform x
+```
+
+支持平台：
+
+| 平台 | 模式 | 说明 |
+|------|------|------|
+| 抖音 | 半自动 | 复制标题 → 打开创作者中心 → 手动上传视频 |
+| 小红书 | 半自动 | 复制文案 → 打开创作者中心 → 手动上传卡片图 |
+| 公众号 | 半自动 | 复制文章 → 打开公众号后台 → 手动排版发布 |
+| X/Twitter | 自动/半自动 | 安装 [bird CLI](https://github.com/nicholasgasior/bird) 后自动发 thread |
+
+**可选依赖：**
+- [bird CLI](https://github.com/nicholasgasior/bird) — 解锁 X 自动发布（`brew install bird`）
 
 ## 技术栈
 
@@ -195,7 +223,7 @@ output/YYYY-MM-DD_视频名/
 ```yaml
 tool_type: cli
 cli_command: ./pipeline.sh
-cli_args: "<video_file> [--skip-edit] [--output-dir <dir>]"
+cli_args: "<video_file> [--skip-edit] [--output-dir <dir>] [--publish]"
 language: bash
 dependencies:
   - ffmpeg
@@ -220,6 +248,7 @@ commands:
     args:
       - --skip-edit: Skip Phase 1 video editing
       - --output-dir <dir>: Specify existing output directory
+      - --publish: Run Phase 7 publishing after content generation
 
   - name: edit
     run: ./run.sh <video> [model] [--no-server]
@@ -235,6 +264,12 @@ commands:
   - name: cards
     run: ./generate-cards.sh <4_quotes.json>
     description: Generate 1080x1080 quote card PNGs from quotes JSON
+
+  - name: publish
+    run: ./publish.sh <output_dir> [--platform <name>]
+    description: Semi-auto publishing to 4 platforms (Douyin, Xiaohongshu, WeChat OA, X/Twitter)
+    args:
+      - --platform <name>: Only publish to specified platform (douyin|xhs|wechat|x)
 ```
 
 ### Agent Workflow Example
