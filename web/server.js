@@ -201,7 +201,7 @@ if (process.env.NODE_ENV === 'production') {
   })
 }
 
-const PORT = process.env.PORT || 3456
+const PORT = process.env.PORT || 3789
 app.listen(PORT, () => {
   console.log(`🎬 Videocut Dashboard server: http://localhost:${PORT}`)
   console.log(`📂 Output directory: ${OUTPUT_DIR}`)
