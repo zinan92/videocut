@@ -33,6 +33,49 @@ err()  { echo -e "${DIM}[$(date '+%H:%M:%S')]${RESET} ${RED}❌${RESET} $*" >&2;
 phase(){ echo -e "\n${BOLD}${CYAN}═══ $* ═══${RESET}"; }
 skip() { echo -e "${DIM}[$(date '+%H:%M:%S')]${RESET} ${YELLOW}⏭${RESET}  $* ${DIM}(已存在，跳过)${RESET}"; }
 
+# ─── retry_claude: Claude CLI 调用 + 重试 ────────────────────────────────────
+# 用法: echo "prompt" | retry_claude [claude_args...] > output.txt
+#   - 最多重试 3 次，指数退避 (1s, 3s, 9s)
+#   - 验证输出非空
+retry_claude() {
+  local max_retries=3
+  local delay=1
+  local attempt=1
+  local tmp_out tmp_in
+  tmp_out=$(mktemp)
+  tmp_in=$(mktemp)
+  cat > "$tmp_in"  # 缓存 stdin，重试时可重放
+
+  while [[ $attempt -le $max_retries ]]; do
+    if claude "$@" < "$tmp_in" > "$tmp_out" 2>/dev/null; then
+      # 验证输出非空（去除空白后至少 10 字节）
+      local size
+      size=$(wc -c < "$tmp_out" | tr -d ' ')
+      if [[ $size -ge 10 ]]; then
+        cat "$tmp_out"
+        rm -f "$tmp_out" "$tmp_in"
+        return 0
+      fi
+      warn "Claude 输出为空 (attempt $attempt/$max_retries)"
+    else
+      warn "Claude CLI 失败 (attempt $attempt/$max_retries)"
+    fi
+
+    if [[ $attempt -lt $max_retries ]]; then
+      info "等待 ${delay}s 后重试..."
+      sleep $delay
+      delay=$((delay * 3))
+    fi
+    attempt=$((attempt + 1))
+  done
+
+  # 最后一次失败，输出已有内容（可能为空）并返回错误
+  cat "$tmp_out"
+  rm -f "$tmp_out" "$tmp_in"
+  err "Claude CLI 调用失败，已重试 $max_retries 次"
+  return 1
+}
+
 PIPELINE_START=$(date +%s)
 
 # ─── 脚本目录 & 路径 ──────────────────────────────────────────────────────────
@@ -236,7 +279,7 @@ gen_jike() {
 
 原文：" \
     "$CN_CONTENT" \
-    | claude -p --dangerously-skip-permissions --output-format text > "$OUT"
+    | retry_claude -p --dangerously-skip-permissions --output-format text > "$OUT"
   ok "5_jike_post.md ($(file_size "$OUT"))"
 }
 
@@ -262,7 +305,7 @@ gen_xhs() {
 
 原文：" \
     "$CN_CONTENT" \
-    | claude -p --dangerously-skip-permissions --output-format text > "$OUT"
+    | retry_claude -p --dangerously-skip-permissions --output-format text > "$OUT"
   ok "5_xhs_caption.md ($(file_size "$OUT"))"
 }
 
@@ -288,7 +331,7 @@ gen_wechat() {
 
 原文：" \
     "$CN_CONTENT" \
-    | claude -p --dangerously-skip-permissions --output-format text > "$OUT"
+    | retry_claude -p --dangerously-skip-permissions --output-format text > "$OUT"
   ok "5_wechat_article.md ($(file_size "$OUT"))"
 }
 
@@ -321,7 +364,7 @@ Requirements:
 
 Article:' \
     "$EN_CONTENT" \
-    | claude -p --dangerously-skip-permissions --output-format text > "$OUT"
+    | retry_claude -p --dangerously-skip-permissions --output-format text > "$OUT"
   strip_code_fences "$OUT"
   ok "5_x_thread.json ($(file_size "$OUT"))"
 }
@@ -346,7 +389,7 @@ Requirements:
 
 Article:' \
     "$EN_CONTENT" \
-    | claude -p --dangerously-skip-permissions --output-format text > "$OUT"
+    | retry_claude -p --dangerously-skip-permissions --output-format text > "$OUT"
   local CHAR_COUNT
   CHAR_COUNT=$(wc -m < "$OUT" | tr -d ' ')
   if [[ $CHAR_COUNT -gt 300 ]]; then
