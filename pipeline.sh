@@ -4,6 +4,7 @@
 # 用法: ./pipeline.sh <video_file> [OPTIONS]
 #   --skip-edit          跳过 Phase 1 视频剪辑
 #   --output-dir <dir>   指定 output 目录（--skip-edit 时使用）
+#   --publish            发布到各平台（Phase 7）
 #
 # 完整流程:
 #   Phase 1: 视频剪辑 (run.sh)
@@ -12,6 +13,7 @@
 #   Phase 4: 卡片生成 (generate-cards.sh，复用已有 4_thumbnail.png)
 #   Phase 5: 生成 manifest.json
 #   Phase 6: 打印 summary
+#   Phase 7: 发布 (publish.sh，可选，需 --publish)
 
 set -euo pipefail
 
@@ -83,11 +85,13 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 RUN_SH="$SCRIPT_DIR/run.sh"
 REPURPOSE_SH="$SCRIPT_DIR/content-repurpose.sh"
 CARDS_SH="$SCRIPT_DIR/generate-cards.sh"
+PUBLISH_SH="$SCRIPT_DIR/publish.sh"
 
 # ─── 参数解析 ─────────────────────────────────────────────────────────────────
 VIDEO_PATH=""
 SKIP_EDIT=false
 OUTPUT_DIR_OVERRIDE=""
+DO_PUBLISH=false
 
 while [[ $# -gt 0 ]]; do
   case "$1" in
@@ -97,6 +101,9 @@ while [[ $# -gt 0 ]]; do
     --output-dir)
       OUTPUT_DIR_OVERRIDE="$2"
       shift 2 ;;
+    --publish)
+      DO_PUBLISH=true
+      shift ;;
     -*)
       err "未知参数: $1"
       exit 1 ;;
@@ -538,6 +545,11 @@ gen_manifest() {
         podcast:     fi(path.join(outputDir, "4_podcast.mp3"))
       },
       platforms: {
+        douyin: {
+          video: fi(path.join(outputDir, "3_output_cut.mp4")),
+          meta:  fi(path.join(outputDir, "4_video_meta.json")),
+          status: "pending"
+        },
         jike: {
           text:   fi(path.join(outputDir, "5_jike_post.md")),
           status: "pending"
@@ -631,3 +643,11 @@ print_file "manifest.json" "$OUTPUT_DIR/manifest.json"
 echo ""
 echo -e "${DIM}输出目录: $OUTPUT_DIR${RESET}"
 echo ""
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Phase 7: 发布 (可选)
+# ─────────────────────────────────────────────────────────────────────────────
+if [[ "$DO_PUBLISH" = true ]]; then
+  phase "Phase 7: 发布"
+  bash "$PUBLISH_SH" "$OUTPUT_DIR"
+fi
