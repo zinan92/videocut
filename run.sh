@@ -121,6 +121,13 @@ console.log('🔇 2_auto_selected.json: ≥0.5s静音', selected.length, '段');
 # Step 4b: AI 口误分析
 echo ""
 echo "═══ 步骤 4b: AI 口误分析 ═══"
+
+# 运行 feedback aggregator（如果有历史反馈）
+FEEDBACK_AGG="$(cd "$(dirname "$0")/剪口播/scripts" && pwd)/feedback_aggregator.js"
+if [[ -f "$FEEDBACK_AGG" ]]; then
+  node "$FEEDBACK_AGG" 2>/dev/null || true
+fi
+
 RULES_DIR="$(cd "$(dirname "$0")/剪口播/用户习惯" && pwd)"
 
 # Build rules context
@@ -129,11 +136,21 @@ for rule_file in "$RULES_DIR"/[1-9]*.md; do
   RULES_CONTEXT+="$(cat "$rule_file")"$'\n\n'
 done
 
+# 加载用户修正反馈（如果存在）
+FEEDBACK_CONTEXT=""
+FEEDBACK_FILE="$(cd "$(dirname "$0")/剪口播/用户习惯" && pwd)/feedback_examples.md"
+if [[ -f "$FEEDBACK_FILE" ]]; then
+  FEEDBACK_CONTEXT=$(cat "$FEEDBACK_FILE")
+fi
+
 # Build prompt for AI analysis
 AI_PROMPT="你是视频口误分析专家。根据以下规则，分析 readable.txt 和 sentences.txt，找出所有应该删除的片段。
 
 ## 规则
 ${RULES_CONTEXT}
+
+## 用户历史修正反馈
+${FEEDBACK_CONTEXT}
 
 ## readable.txt（idx|内容|时间范围）
 $(cat "${BASE_DIR}/2_readable.txt")
@@ -224,6 +241,22 @@ if [ "$NO_SERVER" = true ]; then
   "
 
   bash "$SCRIPT_DIR/cut_video.sh" "$VIDEO_PATH" "${BASE_DIR}/3_delete_segments.json" "${BASE_DIR}/3_output_cut.mp4"
+
+  # 保存基线 feedback（无用户修正）
+  node -e "
+  const fs = require('fs');
+  const feedback = {
+    timestamp: new Date().toISOString(),
+    mode: 'no-server',
+    ai_selected_count: JSON.parse(fs.readFileSync('${BASE_DIR}/2_auto_selected.json', 'utf8')).length,
+    user_selected_count: JSON.parse(fs.readFileSync('${BASE_DIR}/2_auto_selected.json', 'utf8')).length,
+    ai_over_deleted: [],
+    ai_under_deleted: [],
+    note: 'Auto mode (--no-server), no user corrections'
+  };
+  fs.writeFileSync('${BASE_DIR}/3_feedback.json', JSON.stringify(feedback, null, 2));
+  console.log('📊 Baseline feedback saved (no user review)');
+  "
 else
   echo ""
   echo "═══ 步骤 6: 启动审核服务器 ═══"
