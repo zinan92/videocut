@@ -41,6 +41,48 @@ echo "📂 输入: $OUTPUT_DIR"
 echo "📂 输出: $OUTPUT_DIR"
 echo ""
 
+# ─── 日志辅助 ──────────────────────────────────────────────────────────────
+warn() { echo "⚠️  $*"; }
+_info() { echo "ℹ  $*"; }
+
+# ─── retry_claude ──────────────────────────────────────────────────────────
+retry_claude() {
+  local max_retries=3
+  local delay=1
+  local attempt=1
+  local tmp_out tmp_in
+  tmp_out=$(mktemp)
+  tmp_in=$(mktemp)
+  cat > "$tmp_in"  # 缓存 stdin，重试时可重放
+
+  while [[ $attempt -le $max_retries ]]; do
+    if claude "$@" < "$tmp_in" > "$tmp_out" 2>/dev/null; then
+      local size
+      size=$(wc -c < "$tmp_out" | tr -d ' ')
+      if [[ $size -ge 10 ]]; then
+        cat "$tmp_out"
+        rm -f "$tmp_out" "$tmp_in"
+        return 0
+      fi
+      warn "Claude 输出为空 (attempt $attempt/$max_retries)"
+    else
+      warn "Claude CLI 失败 (attempt $attempt/$max_retries)"
+    fi
+
+    if [[ $attempt -lt $max_retries ]]; then
+      _info "等待 ${delay}s 后重试..."
+      sleep $delay
+      delay=$((delay * 3))
+    fi
+    attempt=$((attempt + 1))
+  done
+
+  cat "$tmp_out"
+  rm -f "$tmp_out" "$tmp_in"
+  echo "❌ Claude CLI 调用失败，已重试 $max_retries 次" >&2
+  return 1
+}
+
 # ─── 步骤 A: 提取纯文字转录稿 ───────────────────────────────────────────────
 echo "═══ 步骤 A: 提取转录文字 ═══"
 TRANSCRIPT=$(python3 -c "
@@ -73,7 +115,7 @@ CN_PROMPT="你是一位专业的内容创作者，擅长公众号和即刻文章
 
 ${TRANSCRIPT}"
 
-echo "$CN_PROMPT" | claude -p --dangerously-skip-permissions > "$OUTPUT_DIR/4_article_cn.md"
+echo "$CN_PROMPT" | retry_claude -p --dangerously-skip-permissions > "$OUTPUT_DIR/4_article_cn.md"
 echo "✅ 4_article_cn.md"
 
 # ─── 步骤 C: 英文文章（Medium/Substack 风格）─────────────────────────────────
@@ -96,7 +138,7 @@ Transcript:
 
 ${TRANSCRIPT}"
 
-echo "$EN_PROMPT" | claude -p --dangerously-skip-permissions > "$OUTPUT_DIR/4_article_en.md"
+echo "$EN_PROMPT" | retry_claude -p --dangerously-skip-permissions > "$OUTPUT_DIR/4_article_en.md"
 echo "✅ 4_article_en.md"
 
 # ─── 步骤 D: 提取播客音频（-16 LUFS 规范化）─────────────────────────────────
@@ -158,7 +200,7 @@ QUOTES_PROMPT='从下面的转录稿中提取 3-5 句最有价值的金句。
 
 '"${TRANSCRIPT}"
 
-echo "$QUOTES_PROMPT" | claude -p --dangerously-skip-permissions > "$OUTPUT_DIR/4_quotes.json"
+echo "$QUOTES_PROMPT" | retry_claude -p --dangerously-skip-permissions > "$OUTPUT_DIR/4_quotes.json"
 echo "✅ 4_quotes.json"
 
 # ─── 步骤 F: 生成视频封面 + 元数据 ──────────────────────────────────────────
@@ -206,7 +248,7 @@ ${ARTICLE_CN_CONTENT}
 - hook.cn：1句话，极度吸引眼球，适合放在封面大字（10-20字）
 - hook.en：1 sentence, for thumbnail overlay text"
 
-echo "$META_PROMPT" | claude -p --dangerously-skip-permissions --output-format text > "$OUTPUT_DIR/4_video_meta.json"
+echo "$META_PROMPT" | retry_claude -p --dangerously-skip-permissions --output-format text > "$OUTPUT_DIR/4_video_meta.json"
 # Strip code fences if claude wrapped the JSON
 node -e "
 const fs = require('fs');
