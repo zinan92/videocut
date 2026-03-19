@@ -216,6 +216,11 @@ node "$SCRIPT_DIR/generate_review.js" \
   "${BASE_DIR}/1_audio.mp3"
 mv "${BASE_DIR}/review.html" "${BASE_DIR}/3_review.html"
 
+# 预生成 SRT（剪辑完成后可用于烧录）
+if [[ -f "${BASE_DIR}/1_subtitles_words.json" ]]; then
+  node "$SCRIPT_DIR/generate_srt.js" "${BASE_DIR}/1_subtitles_words.json" "${BASE_DIR}/1_subtitles.srt"
+fi
+
 if [ "$NO_SERVER" = true ]; then
   echo ""
   echo "═══ 步骤 6: 直接剪辑（跳过审核）═══"
@@ -241,6 +246,31 @@ if [ "$NO_SERVER" = true ]; then
   "
 
   bash "$SCRIPT_DIR/cut_video.sh" "$VIDEO_PATH" "${BASE_DIR}/3_delete_segments.json" "${BASE_DIR}/3_output_cut.mp4"
+
+  # Step 6b: 生成 SRT + 烧录字幕
+  echo ""
+  echo "═══ 步骤 6b: 烧录字幕 ═══"
+  if [[ -f "${BASE_DIR}/1_subtitles_words.json" ]]; then
+    # 生成 SRT
+    node "$SCRIPT_DIR/generate_srt.js" "${BASE_DIR}/1_subtitles_words.json" "${BASE_DIR}/1_subtitles.srt"
+
+    # 烧录字幕到剪辑后的视频
+    if [[ -f "${BASE_DIR}/3_output_cut.mp4" && -f "${BASE_DIR}/1_subtitles.srt" ]]; then
+      echo "🔤 烧录字幕到视频..."
+      ffmpeg -y -i "${BASE_DIR}/3_output_cut.mp4" \
+        -vf "subtitles='${BASE_DIR}/1_subtitles.srt':force_style='FontName=PingFang SC,FontSize=22,PrimaryColour=&H00FFFFFF,OutlineColour=&H00000000,Outline=2,Shadow=1,Alignment=2,MarginV=30'" \
+        -c:a copy \
+        "${BASE_DIR}/3_output_subtitled.mp4" 2>/dev/null
+
+      if [[ -f "${BASE_DIR}/3_output_subtitled.mp4" ]]; then
+        echo "✅ 3_output_subtitled.mp4 (带字幕)"
+      else
+        echo "⚠️ 字幕烧录失败，继续使用无字幕版本"
+      fi
+    fi
+  else
+    echo "⚠️ 缺少 1_subtitles_words.json，跳过字幕"
+  fi
 
   # 保存基线 feedback（无用户修正）
   node -e "
