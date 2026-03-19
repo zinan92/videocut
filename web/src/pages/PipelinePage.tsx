@@ -102,10 +102,7 @@ export default function PipelinePage() {
   }
 
   return (
-    <div className="max-w-3xl mx-auto p-8">
-      <h1 className="text-3xl font-bold mb-2">🎬 Videocut Dashboard</h1>
-      <p className="text-gray-500 mb-8">上传视频 → 自动生成多平台内容 → 一键发布</p>
-
+    <div className="space-y-6">
       {stage === 'idle' && (
         <FileUpload onFileSelected={handleFile} />
       )}
