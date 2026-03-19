@@ -13,6 +13,38 @@
 
 ---
 
+## 示例产出
+
+<div align="center">
+
+**封面图 (1280×720)** — 自动生成
+
+<img src="examples/4_thumbnail.png" width="600" />
+
+**金句卡片 (1080×1080)** — 自动提取 + 设计
+
+<img src="examples/4_card_1.png" width="400" />
+
+</div>
+
+<details>
+<summary>📱 即刻文案示例（点击展开）</summary>
+
+> AI替代这件事，最核心的一句话：不是AI够不够强，而是它还没渗透到普通人的日常。但这个窗口期，不会太久了。
+>
+> 我用Cursor三四百小时，Claude Code快一年，每月200刀额度。说实话，现在AI能自主跑几个小时不停，一个AI管一群AI干活。我一个不会写代码的人，一天就能开发出一个软件。
+
+</details>
+
+<details>
+<summary>🐦 X Post 示例（点击展开）</summary>
+
+> Most people think AI isn't useful yet because they're comparing it to magic. Meanwhile, someone who can't code just built a full app in a day using Claude. The gap isn't capability—it's imagination.
+
+</details>
+
+---
+
 ## 痛点
 
 录一条 2 分钟的口播视频，后续工作至少需要 30 分钟：
@@ -27,10 +59,14 @@
 
 ## 解决方案
 
-`videocut` 把口播视频变成一条 Pipeline：**一个命令，6 个阶段，自动输出全部内容物料。**
+`videocut` 把口播视频变成一条 Pipeline：**一个命令，7 个阶段，从录制到发布全自动。**
 
-```
+```bash
+# 生成全部内容物料
 ./pipeline.sh video.mp4
+
+# 生成 + 引导发布到 4 个平台
+./pipeline.sh video.mp4 --publish
 ```
 
 输入一个视频文件，输出：剪辑成片 + 中英文章 + 播客音频 + 金句卡片 + 封面图 + 8 平台发布文案 + manifest.json。
