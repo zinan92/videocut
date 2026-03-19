@@ -148,7 +148,9 @@ publish_douyin() {
   should_publish "douyin" || return 0
 
   local meta="$OUTPUT_DIR/4_video_meta.json"
-  local video="$OUTPUT_DIR/3_output_cut.mp4"
+  # 优先使用带字幕版本
+  local video="$OUTPUT_DIR/3_output_subtitled.mp4"
+  [[ -f "$video" ]] || video="$OUTPUT_DIR/3_output_cut.mp4"
 
   if [[ ! -f "$meta" ]]; then
     warn "抖音: 缺少 4_video_meta.json，跳过"
