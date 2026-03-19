@@ -33,9 +33,9 @@ export default function ChapterTimeline({ chapters, selected, onToggle }: Props)
   const totalEnd = Math.max(...chapters.map(c => parseTime(c.end)))
 
   return (
-    <div className="bg-gray-900 rounded-lg p-4">
-      <p className="text-xs text-gray-500 mb-2">时间轴</p>
-      <div className="flex h-10 rounded-lg overflow-hidden gap-0.5">
+    <div className="glass-card p-4">
+      <p className="section-label mb-3">Timeline</p>
+      <div className="flex h-12 rounded-xl overflow-hidden gap-0.5">
         {chapters.map((ch, i) => {
           const start = parseTime(ch.start)
           const end = parseTime(ch.end)
@@ -48,7 +48,7 @@ export default function ChapterTimeline({ chapters, selected, onToggle }: Props)
               className={`
                 relative cursor-pointer transition-opacity
                 ${COLORS[i % COLORS.length]}
-                ${selected.has(i) ? 'opacity-100' : 'opacity-30'}
+                ${selected.has(i) ? 'opacity-100' : 'opacity-20'}
               `}
               style={{ width: `${widthPct}%` }}
               title={`${ch.title} (${ch.start} - ${ch.end})`}
@@ -60,7 +60,7 @@ export default function ChapterTimeline({ chapters, selected, onToggle }: Props)
           )
         })}
       </div>
-      <div className="flex justify-between mt-1">
+      <div className="flex justify-between mt-2">
         <span className="text-[10px] text-gray-600">0:00</span>
         <span className="text-[10px] text-gray-600">
           {Math.floor(totalEnd / 60)}:{String(Math.floor(totalEnd % 60)).padStart(2, '0')}

@@ -18,10 +18,10 @@ export default function ChapterCard({ chapter, index, selected, onToggle }: Prop
     <div
       onClick={() => onToggle(index)}
       className={`
-        p-4 rounded-lg border cursor-pointer transition-all
+        glass-card-hover p-4 cursor-pointer transition-all
         ${selected
-          ? 'border-brand-accent bg-brand-accent/10'
-          : 'border-gray-800 bg-gray-900 hover:border-gray-600'}
+          ? 'border-brand-accent/30 bg-brand-accent/[0.06]'
+          : ''}
       `}
     >
       <div className="flex items-start gap-3">
@@ -41,7 +41,7 @@ export default function ChapterCard({ chapter, index, selected, onToggle }: Prop
           <p className="text-xs text-gray-400 line-clamp-2">{chapter.summary}</p>
           <div className="flex gap-1 mt-2 flex-wrap">
             {chapter.keywords.map((kw, i) => (
-              <span key={i} className="text-xs bg-gray-800 text-gray-400 px-2 py-0.5 rounded">
+              <span key={i} className="text-xs bg-white/[0.04] text-gray-400 px-2 py-0.5 rounded-lg border border-white/[0.04]">
                 {kw}
               </span>
             ))}

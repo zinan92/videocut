@@ -37,7 +37,7 @@ export default function SplitPage() {
   const handleFile = async (file: File) => {
     setFileName(file.name)
     setStage('uploading')
-    addLog(`上传中: ${file.name}`)
+    addLog(`Uploading: ${file.name}`)
 
     try {
       const form = new FormData()
@@ -45,9 +45,8 @@ export default function SplitPage() {
       const uploadRes = await fetch('/api/upload', { method: 'POST', body: form })
       const { path: vPath } = await uploadRes.json()
       setVideoPath(vPath)
-      addLog(`上传完成: ${vPath}`)
+      addLog(`Upload complete: ${vPath}`)
 
-      // Start transcription
       setStage('transcribing')
       const es = new EventSource(`/api/split/transcribe?video=${encodeURIComponent(vPath)}`)
 
@@ -67,7 +66,7 @@ export default function SplitPage() {
             break
           case 'done':
             setOutputDir(data.outputDir)
-            addLog('转录完成，开始 AI 分析...')
+            addLog('Transcription complete, starting AI analysis...')
             es.close()
             analyzeChapters(data.outputDir)
             break
@@ -76,7 +75,7 @@ export default function SplitPage() {
 
       es.onerror = () => {
         es.close()
-        setError('转录连接断开')
+        setError('Transcription connection lost')
         setStage('idle')
       }
     } catch (err) {
@@ -102,7 +101,7 @@ export default function SplitPage() {
       setChapters(data.chapters)
       setSelected(new Set(data.chapters.map((_: Chapter, i: number) => i)))
       setStage('selecting')
-      addLog(`分析完成，共 ${data.chapters.length} 个章节`)
+      addLog(`Analysis complete — ${data.chapters.length} chapters found`)
     } catch (err) {
       setError(String(err))
       setStage('idle')
@@ -123,7 +122,7 @@ export default function SplitPage() {
 
   const executeSplit = async () => {
     setStage('splitting')
-    addLog(`开始切割 ${selected.size} 个章节...`)
+    addLog(`Splitting ${selected.size} chapters...`)
 
     const selectedChapters = chapters
       .map((ch, i) => ({ ...ch, index: i + 1 }))
@@ -144,14 +143,13 @@ export default function SplitPage() {
       setStage('done')
 
       const successCount = data.results.filter((r: SplitResult) => r.success).length
-      addLog(`切割完成: ${successCount}/${data.results.length} 成功`)
+      addLog(`Split complete: ${successCount}/${data.results.length} successful`)
     } catch (err) {
       setError(String(err))
       setStage('selecting')
     }
   }
 
-  // Calculate selected duration
   const selectedDuration = chapters
     .filter((_, i) => selected.has(i))
     .reduce((sum, ch) => {
@@ -170,20 +168,28 @@ export default function SplitPage() {
 
       {stage === 'uploading' && (
         <div className="text-center py-12">
-          <div className="text-4xl mb-4 animate-pulse">📤</div>
-          <p>上传中: {fileName}</p>
+          <div className="flex items-center justify-center mb-4">
+            <svg className="w-10 h-10 text-brand-accent animate-spin" fill="none" viewBox="0 0 24 24">
+              <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="3" />
+              <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" />
+            </svg>
+          </div>
+          <p className="text-gray-300 font-medium">Uploading {fileName}</p>
         </div>
       )}
 
       {(stage === 'transcribing' || stage === 'analyzing') && (
         <div className="space-y-4">
           <div className="flex items-center gap-3">
-            <div className="animate-spin text-brand-accent text-xl">⏳</div>
-            <span className="font-medium">
-              {stage === 'transcribing' ? 'Whisper 转录中...' : 'AI 分析章节中...'}
+            <svg className="w-5 h-5 text-brand-accent animate-spin flex-shrink-0" fill="none" viewBox="0 0 24 24">
+              <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="3" />
+              <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" />
+            </svg>
+            <span className="font-medium text-sm">
+              {stage === 'transcribing' ? 'Whisper transcribing...' : 'AI analyzing chapters...'}
             </span>
           </div>
-          <div className="bg-gray-900 rounded-lg p-4 h-32 overflow-y-auto font-mono text-xs text-gray-400">
+          <div className="log-terminal h-32">
             {logs.map((line, i) => <div key={i}>{line}</div>)}
           </div>
         </div>
@@ -192,8 +198,8 @@ export default function SplitPage() {
       {(stage === 'selecting' || stage === 'splitting') && (
         <div className="space-y-4">
           <div className="flex items-center justify-between">
-            <h2 className="text-lg font-bold">
-              📊 共 {chapters.length} 个章节
+            <h2 className="text-base font-bold">
+              {chapters.length} chapters found
             </h2>
             <span className="text-sm text-gray-500">{fileName}</span>
           </div>
@@ -212,21 +218,21 @@ export default function SplitPage() {
             ))}
           </div>
 
-          <div className="flex items-center justify-between bg-gray-900 rounded-lg p-4">
+          <div className="glass-card flex items-center justify-between px-5 py-4">
             <div className="text-sm text-gray-400">
-              已选 <span className="text-white font-medium">{selected.size}</span> 个章节
-              <span className="mx-2">·</span>
-              约 {Math.floor(selectedDuration / 60)}分{Math.floor(selectedDuration % 60)}秒
+              <span className="text-white font-medium">{selected.size}</span> chapters selected
+              <span className="mx-2 text-gray-600">·</span>
+              {Math.floor(selectedDuration / 60)}m {Math.floor(selectedDuration % 60)}s
             </div>
-            <div className="flex gap-2">
-              <button onClick={selectAll} className="text-xs text-gray-500 hover:text-white px-2 py-1">全选</button>
-              <button onClick={selectNone} className="text-xs text-gray-500 hover:text-white px-2 py-1">全不选</button>
+            <div className="flex gap-2 items-center">
+              <button onClick={selectAll} className="btn-ghost text-xs">Select all</button>
+              <button onClick={selectNone} className="btn-ghost text-xs">None</button>
               <button
                 onClick={executeSplit}
                 disabled={selected.size === 0 || stage === 'splitting'}
-                className="bg-brand-accent hover:bg-brand-accent/80 disabled:opacity-50 text-white px-4 py-2 rounded-lg text-sm font-medium transition-colors"
+                className="btn-primary"
               >
-                {stage === 'splitting' ? '切割中...' : `执行切割 (${selected.size} 段) →`}
+                {stage === 'splitting' ? 'Splitting...' : `Split ${selected.size} clips →`}
               </button>
             </div>
           </div>
@@ -235,29 +241,33 @@ export default function SplitPage() {
 
       {stage === 'done' && (
         <div className="space-y-4">
-          <div className="bg-green-900/20 border border-green-800 rounded-lg p-4">
-            <span className="text-green-400 font-medium">✅ 切割完成！</span>
+          <div className="glass-card border-green-500/20 bg-green-500/[0.04] px-5 py-4 flex items-center gap-2.5">
+            <div className="w-2 h-2 rounded-full bg-green-400" />
+            <span className="text-green-400 font-medium text-sm">Split complete!</span>
           </div>
           <div className="space-y-2">
             {results.map((r, i) => (
-              <div key={i} className={`flex items-center gap-3 p-3 rounded-lg ${r.success ? 'bg-gray-900' : 'bg-red-900/20'}`}>
-                <span>{r.success ? '✅' : '❌'}</span>
+              <div key={i} className={`flex items-center gap-3 p-3 rounded-xl ${r.success ? 'glass-card' : 'bg-red-900/20 border border-red-500/20 rounded-xl'}`}>
+                <div className={`w-1.5 h-1.5 rounded-full flex-shrink-0 ${r.success ? 'bg-green-400' : 'bg-red-400'}`} />
                 <span className="text-sm font-medium">{r.title}</span>
-                {r.file && <span className="text-xs text-gray-500 ml-auto">{r.file}</span>}
+                {r.file && <span className="text-xs text-gray-500 ml-auto font-mono">{r.file}</span>}
                 {r.error && <span className="text-xs text-red-400 ml-auto">{r.error}</span>}
               </div>
             ))}
           </div>
-          <p className="text-sm text-gray-500">
-            输出目录: output/{outputDir}/splits/
+          <p className="section-label">
+            Output: output/{outputDir}/splits/
           </p>
         </div>
       )}
 
       {error && (
-        <div className="bg-red-900/20 border border-red-800 rounded-lg p-4">
-          <span className="text-red-400">❌ {error}</span>
-          <button onClick={() => { setError(''); setStage('idle') }} className="ml-4 text-xs text-gray-500 hover:text-white">重试</button>
+        <div className="glass-card border-red-500/20 bg-red-500/[0.04] px-5 py-4 flex items-center justify-between">
+          <div className="flex items-center gap-2.5">
+            <div className="w-2 h-2 rounded-full bg-red-400" />
+            <span className="text-red-400 text-sm">{error}</span>
+          </div>
+          <button onClick={() => { setError(''); setStage('idle') }} className="btn-ghost text-xs">Retry</button>
         </div>
       )}
     </div>

@@ -1,3 +1,104 @@
 @tailwind base;
 @tailwind components;
 @tailwind utilities;
+
+@layer base {
+  body {
+    font-family: 'DM Sans', system-ui, sans-serif;
+    background: #0a0a14;
+    color: #e2e2ef;
+    -webkit-font-smoothing: antialiased;
+  }
+
+  /* Noise texture overlay */
+  body::before {
+    content: '';
+    position: fixed;
+    inset: 0;
+    z-index: -1;
+    opacity: 0.03;
+    background-image: url("data:image/svg+xml,%3Csvg viewBox='0 0 256 256' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='noise'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='4' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23noise)'/%3E%3C/svg%3E");
+    pointer-events: none;
+  }
+
+  /* Custom scrollbar */
+  ::-webkit-scrollbar {
+    width: 6px;
+    height: 6px;
+  }
+  ::-webkit-scrollbar-track {
+    background: transparent;
+  }
+  ::-webkit-scrollbar-thumb {
+    background: rgba(233, 69, 96, 0.3);
+    border-radius: 3px;
+  }
+  ::-webkit-scrollbar-thumb:hover {
+    background: rgba(233, 69, 96, 0.5);
+  }
+}
+
+@layer components {
+  .glass-card {
+    @apply rounded-2xl border border-white/[0.06] bg-white/[0.03] backdrop-blur-sm;
+    box-shadow: 0 0 0 1px rgba(255,255,255,0.02) inset, 0 8px 40px rgba(0,0,0,0.3);
+  }
+
+  .glass-card-hover {
+    @apply glass-card transition-all duration-300;
+  }
+  .glass-card-hover:hover {
+    @apply border-white/[0.1] bg-white/[0.05];
+    box-shadow: 0 0 0 1px rgba(255,255,255,0.04) inset, 0 12px 48px rgba(0,0,0,0.4);
+  }
+
+  .btn-primary {
+    @apply px-5 py-2.5 rounded-xl text-sm font-medium transition-all duration-200;
+    background: linear-gradient(135deg, #e94560, #d63a54);
+    color: white;
+    box-shadow: 0 4px 16px rgba(233, 69, 96, 0.25);
+  }
+  .btn-primary:hover {
+    box-shadow: 0 6px 24px rgba(233, 69, 96, 0.4);
+    transform: translateY(-1px);
+  }
+  .btn-primary:disabled {
+    @apply opacity-40 cursor-not-allowed;
+    transform: none;
+    box-shadow: none;
+  }
+
+  .btn-ghost {
+    @apply px-4 py-2 rounded-xl text-sm font-medium transition-all duration-200;
+    @apply text-gray-400 hover:text-white hover:bg-white/[0.06];
+  }
+
+  .log-terminal {
+    @apply rounded-xl p-4 overflow-y-auto font-mono text-xs leading-relaxed;
+    font-family: 'IBM Plex Mono', monospace;
+    background: rgba(0, 0, 0, 0.4);
+    border: 1px solid rgba(255,255,255,0.04);
+    color: rgba(255,255,255,0.45);
+  }
+
+  .section-label {
+    @apply text-[11px] font-medium uppercase tracking-[0.15em] text-gray-500;
+  }
+
+  .phase-number {
+    @apply w-7 h-7 rounded-lg flex items-center justify-center text-xs font-bold;
+  }
+
+  .tab-pill {
+    @apply flex-1 py-2.5 px-5 rounded-xl text-sm font-medium transition-all duration-200 cursor-pointer;
+  }
+  .tab-pill-active {
+    background: linear-gradient(135deg, rgba(233, 69, 96, 0.15), rgba(233, 69, 96, 0.05));
+    color: #e94560;
+    border: 1px solid rgba(233, 69, 96, 0.2);
+  }
+  .tab-pill-inactive {
+    @apply text-gray-500 hover:text-gray-300;
+    border: 1px solid transparent;
+  }
+}

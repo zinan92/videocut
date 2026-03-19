@@ -32,10 +32,10 @@ export default function FileUpload({ onFileSelected, disabled }: Props) {
       onDragLeave={() => setDragOver(false)}
       onDrop={handleDrop}
       className={`
-        border-2 border-dashed rounded-xl p-12 text-center cursor-pointer
-        transition-colors duration-200
-        ${dragOver ? 'border-brand-accent bg-brand-accent/10' : 'border-gray-700 hover:border-gray-500'}
-        ${disabled ? 'opacity-50 pointer-events-none' : ''}
+        glass-card-hover rounded-2xl p-16 text-center cursor-pointer
+        transition-all duration-300 group
+        ${dragOver ? 'border-brand-accent/40 bg-brand-accent/[0.06] scale-[1.01]' : ''}
+        ${disabled ? 'opacity-40 pointer-events-none' : ''}
       `}
     >
       <input
@@ -46,10 +46,14 @@ export default function FileUpload({ onFileSelected, disabled }: Props) {
         id="video-upload"
         disabled={disabled}
       />
-      <label htmlFor="video-upload" className="cursor-pointer">
-        <div className="text-4xl mb-4">📹</div>
-        <p className="text-lg font-medium">拖拽视频文件到这里</p>
-        <p className="text-gray-500 mt-2">或点击选择文件 (MP4, MOV)</p>
+      <label htmlFor="video-upload" className="cursor-pointer block">
+        <div className="w-16 h-16 mx-auto mb-5 rounded-2xl bg-gradient-to-br from-brand-accent/20 to-pink-600/10 flex items-center justify-center group-hover:scale-110 transition-transform duration-300">
+          <svg className="w-7 h-7 text-brand-accent" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
+            <path strokeLinecap="round" strokeLinejoin="round" d="M3 16.5v2.25A2.25 2.25 0 005.25 21h13.5A2.25 2.25 0 0021 18.75V16.5m-13.5-9L12 3m0 0l4.5 4.5M12 3v13.5" />
+          </svg>
+        </div>
+        <p className="text-base font-medium text-gray-200 mb-1">Drop your video here</p>
+        <p className="text-sm text-gray-500">or click to browse — MP4, MOV</p>
       </label>
     </div>
   )
