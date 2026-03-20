@@ -402,7 +402,7 @@ ${transcript}`
 
 // ─── Split: execute splits ──────────────────────────────────────────────────
 app.post('/api/split/execute', async (req, res) => {
-  const { outputDir: dirName, chapters, videoPath } = req.body
+  const { outputDir: dirName, chapters, videoPath, skipSubtitles } = req.body
   if (!dirName || !chapters || !videoPath) {
     return res.status(400).json({ error: 'Missing required fields' })
   }
@@ -412,6 +412,7 @@ app.post('/api/split/execute', async (req, res) => {
   fs.mkdirSync(splitsDir, { recursive: true })
 
   const srtPath = path.join(dir, '1_subtitles.srt')
+  const burnSubs = !skipSubtitles && fs.existsSync(srtPath)
   const results = []
 
   const spawnSync = (await import('child_process')).spawnSync
@@ -447,7 +448,7 @@ app.post('/api/split/execute', async (req, res) => {
       runCmd('ffmpeg', ['-y', '-ss', String(startSec), '-i', videoPath, '-t', String(duration), '-c', 'copy', tempPath])
 
       // Step 2: Extract and offset SRT for this segment
-      if (fs.existsSync(srtPath)) {
+      if (burnSubs) {
         const srtContent = fs.readFileSync(srtPath, 'utf8')
         const offsetSrt = offsetSubtitles(srtContent, startSec, endSec)
         const segSrtPath = outputPath.replace('.mp4', '.srt')

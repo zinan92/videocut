@@ -12,16 +12,20 @@ set -e
 VIDEO_PATH="$1"
 MODEL="${2:-small}"
 NO_SERVER=false
+BURN_SUBTITLE=true
 
 if [ -z "$VIDEO_PATH" ]; then
-  echo "用法: ./run.sh <video.mp4> [whisper_model] [--no-server]"
+  echo "用法: ./run.sh <video.mp4> [whisper_model] [--no-server] [--no-subtitle]"
   exit 1
 fi
 
-# Handle --no-server flag in any position
+# Handle flags in any position
 for arg in "$@"; do
   if [ "$arg" = "--no-server" ]; then
     NO_SERVER=true
+  fi
+  if [ "$arg" = "--no-subtitle" ]; then
+    BURN_SUBTITLE=false
   fi
 done
 
@@ -249,24 +253,29 @@ if [ "$NO_SERVER" = true ]; then
 
   # Step 6b: 生成 SRT + 烧录字幕
   echo ""
-  echo "═══ 步骤 6b: 烧录字幕 ═══"
+  echo "═══ 步骤 6b: 字幕处理 ═══"
   if [[ -f "${BASE_DIR}/1_subtitles_words.json" ]]; then
-    # 生成 SRT
+    # 始终生成 SRT（后续可能需要）
     node "$SCRIPT_DIR/generate_srt.js" "${BASE_DIR}/1_subtitles_words.json" "${BASE_DIR}/1_subtitles.srt"
 
-    # 烧录字幕到剪辑后的视频
-    if [[ -f "${BASE_DIR}/3_output_cut.mp4" && -f "${BASE_DIR}/1_subtitles.srt" ]]; then
-      echo "🔤 烧录字幕到视频..."
-      ffmpeg -y -i "${BASE_DIR}/3_output_cut.mp4" \
-        -vf "subtitles='${BASE_DIR}/1_subtitles.srt':force_style='FontName=PingFang SC,FontSize=22,PrimaryColour=&H00FFFFFF,OutlineColour=&H00000000,Outline=2,Shadow=1,Alignment=2,MarginV=30'" \
-        -c:a copy \
-        "${BASE_DIR}/3_output_subtitled.mp4" 2>/dev/null
+    if [[ "$BURN_SUBTITLE" = true ]]; then
+      # 烧录字幕到剪辑后的视频
+      if [[ -f "${BASE_DIR}/3_output_cut.mp4" && -f "${BASE_DIR}/1_subtitles.srt" ]]; then
+        echo "🔤 烧录字幕到视频..."
+        ffmpeg -y -i "${BASE_DIR}/3_output_cut.mp4" \
+          -vf "subtitles='${BASE_DIR}/1_subtitles.srt':force_style='FontName=PingFang SC,FontSize=22,PrimaryColour=&H00FFFFFF,OutlineColour=&H00000000,Outline=2,Shadow=1,Alignment=2,MarginV=30'" \
+          -c:a copy \
+          "${BASE_DIR}/3_output_subtitled.mp4" 2>/dev/null
 
-      if [[ -f "${BASE_DIR}/3_output_subtitled.mp4" ]]; then
-        echo "✅ 3_output_subtitled.mp4 (带字幕)"
-      else
-        echo "⚠️ 字幕烧录失败，继续使用无字幕版本"
+        if [[ -f "${BASE_DIR}/3_output_subtitled.mp4" ]]; then
+          echo "✅ 3_output_subtitled.mp4 (带字幕)"
+        else
+          echo "⚠️ 字幕烧录失败，继续使用无字幕版本"
+        fi
       fi
+    else
+      echo "⏭ 跳过字幕烧录 (--no-subtitle)"
+      echo "✅ 1_subtitles.srt (SRT 已生成，可手动烧录)"
     fi
   else
     echo "⚠️ 缺少 1_subtitles_words.json，跳过字幕"

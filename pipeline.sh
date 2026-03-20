@@ -92,6 +92,7 @@ VIDEO_PATH=""
 SKIP_EDIT=false
 OUTPUT_DIR_OVERRIDE=""
 DO_PUBLISH=false
+NO_SUBTITLE=false
 
 while [[ $# -gt 0 ]]; do
   case "$1" in
@@ -103,6 +104,9 @@ while [[ $# -gt 0 ]]; do
       shift 2 ;;
     --publish)
       DO_PUBLISH=true
+      shift ;;
+    --no-subtitle)
+      NO_SUBTITLE=true
       shift ;;
     -*)
       err "未知参数: $1"
@@ -215,7 +219,9 @@ run_phase1() {
   fi
 
   info "调用 run.sh..."
-  bash "$RUN_SH" "$VIDEO_PATH" small --no-server
+  local RUN_ARGS=("$VIDEO_PATH" small --no-server)
+  [[ "$NO_SUBTITLE" = true ]] && RUN_ARGS+=(--no-subtitle)
+  bash "$RUN_SH" "${RUN_ARGS[@]}"
   ok "Phase 1 完成"
 }
 
