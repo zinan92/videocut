@@ -1,72 +1,24 @@
-<div align="center">
-
 # videocut
 
-**录一次视频，自动出全平台内容 — 从粗剪到发布的一站式内容工厂**
+将口播视频一键转化为 8 平台全套发布物料，从粗剪到半自动发布全流程覆盖。
 
-[![Shell](https://img.shields.io/badge/Shell-Bash-green)](https://www.gnu.org/software/bash/)
-[![Node.js](https://img.shields.io/badge/Node.js-18+-339933)](https://nodejs.org/)
-[![React](https://img.shields.io/badge/React-18-61DAFB)](https://react.dev/)
-[![Claude CLI](https://img.shields.io/badge/AI-Claude_CLI-blueviolet)](https://docs.anthropic.com/en/docs/claude-cli)
-[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
-
-</div>
-
----
-
-## 示例产出
-
-<div align="center">
-
-**封面图** — 自动生成 (1280×720)
-
-<img src="examples/4_thumbnail.png" width="600" />
-
-**金句卡片** — AI 提取 + 设计 (1080×1080)
-
-<img src="examples/4_card_1.png" width="400" />
-
-</div>
-
-<details>
-<summary>📱 即刻文案示例</summary>
-
-> AI替代这件事，最核心的一句话：不是AI够不够强，而是它还没渗透到普通人的日常。但这个窗口期，不会太久了。
->
-> 我用Cursor三四百小时，Claude Code快一年，每月200刀额度。说实话，现在AI能自主跑几个小时不停，一个AI管一群AI干活。我一个不会写代码的人，一天就能开发出一个软件。
-
-</details>
-
-<details>
-<summary>🐦 X Post 示例</summary>
-
-> Most people think AI isn't useful yet because they're comparing it to magic. Meanwhile, someone who can't code just built a full app in a day using Claude. The gap isn't capability—it's imagination.
-
-</details>
-
----
-
-## 痛点
-
-录一条口播视频，后续搬运工作要 30-60 分钟：去口误、写文章、做封面、拆推文、发 8 个平台。一条视频 × 8 个平台 = 反复人肉。
-
-## 解决方案
-
-`videocut` 把口播变成一条 Pipeline — **一个命令，7 个阶段，从粗剪到发布全搞定。**
-
-```bash
-./pipeline.sh video.mp4 --publish
 ```
+in  视频文件 (mp4/mov)
+out output/<date>_<name>/ 目录，含：
+    带字幕剪辑成片 + 中英文章 + 播客音频 + 金句卡片 + 封面图 + 8 平台文案 + manifest.json
 
-输入一个视频文件，输出：带字幕剪辑成片 + 中英文章 + 播客音频 + 金句卡片 + 封面图 + 8 平台文案 + 4 平台引导发布。
-
-还有 **Web Dashboard**：拖拽上传、实时进度、内容预览、一键复制发布。
+fail 视频文件不存在           → exit 1, stderr 提示路径
+fail ffmpeg/whisper/node 缺失 → exit 1, 依赖检查失败
+fail Claude CLI 未认证       → Phase 2+ 挂起，需先 claude auth
+fail Chrome 未安装           → Phase 4 卡片/封面生成跳过
+fail 某 Phase 中途失败       → exit 1, 重跑自动跳过已完成阶段（断点续跑）
+```
 
 ## 架构
 
 ```
                       pipeline.sh (master orchestrator)
-                                 │
+                                 |
          ┌───────────────────────┼───────────────────────┐
          v                       v                       v
    ┌──────────┐          ┌──────────────┐        ┌──────────────┐
@@ -74,20 +26,18 @@
    │ 视频粗剪  │          │  repurpose   │        │  cards.sh    │
    │ + 字幕    │          │  内容降维     │        │  金句卡片     │
    └──────────┘          └──────────────┘        └──────────────┘
-        │                       │                       │
-   Whisper 转录           Claude CLI ×9           Chrome Headless
+        |                       |                       |
+   Whisper 转录           Claude CLI x9           Chrome Headless
    AI 口误分析            (并行，带重试)            HTML → PNG
    FFmpeg 剪辑 + 字幕
-        │                       │                       │
+        |                       |                       |
         └───────────────────────┼───────────────────────┘
                                 v
                     ┌───────────────────┐
                     │   publish.sh      │
                     │  4 平台半自动发布   │
-                    │  (抖音/小红书/     │
-                    │   公众号/X)        │
                     └───────────────────┘
-                                │
+                                |
                     ┌───────────────────┐
                     │  Web Dashboard    │
                     │  React + Express  │
@@ -97,29 +47,19 @@
 
 ## 快速开始
 
-### 1. 安装依赖
-
 ```bash
 brew install ffmpeg node
 pip install openai-whisper
-```
+# 确保已安装 Claude CLI (https://docs.anthropic.com/en/docs/claude-cli) 并完成认证
+# 封面和卡片依赖 Google Chrome
 
-确保已安装 [Claude CLI](https://docs.anthropic.com/en/docs/claude-cli) 并完成认证。封面和卡片依赖 Google Chrome。
-
-### 2. 克隆仓库
-
-```bash
 git clone https://github.com/zinan92/videocut.git
 cd videocut
-```
 
-### 3. 运行
-
-```bash
-# CLI：一键生成全部内容
+# CLI: 一键生成全部内容
 ./pipeline.sh video.mp4
 
-# CLI：生成 + 发布
+# CLI: 生成 + 发布
 ./pipeline.sh video.mp4 --publish
 
 # Web Dashboard
@@ -127,32 +67,34 @@ cd web && npm install && npm run dev
 # 打开 http://localhost:5173
 ```
 
-## 功能一览
-
-| 阶段 | 脚本 | 说明 | 状态 |
-|------|------|------|------|
-| Phase 1 | `run.sh` | Whisper 转录 → AI 口误分析 → FFmpeg 剪辑 → **字幕烧录** | ✅ |
-| Phase 2 | `content-repurpose.sh` | 中英文章 + 播客音频 (-16 LUFS) + 金句提取 + 封面图 + 元数据 | ✅ |
-| Phase 3 | `pipeline.sh` 内置 | 5 平台文案**并行**生成（即刻/小红书/公众号/X Thread/X Post） | ✅ |
-| Phase 4 | `generate-cards.sh` | 1080×1080 金句卡片 PNG（Chrome Headless 截图） | ✅ |
-| Phase 5 | `pipeline.sh` 内置 | `manifest.json` 结构化清单 | ✅ |
-| Phase 6 | `pipeline.sh` 内置 | 终端 Summary | ✅ |
-| Phase 7 | `publish.sh` | 半自动发布到抖音/小红书/公众号/X | ✅ |
-| Dashboard | `web/` | React 前端：上传 → 实时进度 → 内容预览 → 一键发布 | ✅ |
-| 长视频拆条 | Dashboard 内置 | AI 章节分析 → 时间轴选择 → FFmpeg 切割 + 字幕 | ✅ |
-
-### 发布
+分步执行：
 
 ```bash
-# 独立使用
-./publish.sh output/2026-03-18_video/
+./run.sh video.mp4 small --no-server            # 仅粗剪，跳过审核直接剪
+./content-repurpose.sh ./output/2026-02-26_video/  # 仅内容降维
+./generate-cards.sh ./output/2026-02-26_video/4_quotes.json  # 仅金句卡片
+./publish.sh ./output/2026-02-26_video/          # 仅发布
+./publish.sh ./output/2026-02-26_video/ --platform x  # 只发 X
 
-# 集成到 pipeline
-./pipeline.sh video.mp4 --publish
-
-# 只发特定平台
-./publish.sh output/2026-03-18_video/ --platform x
+# 断点续跑
+./pipeline.sh video.mp4 --skip-edit --output-dir ./output/2026-02-26_video/
 ```
+
+## 功能一览
+
+| 阶段 | 脚本 | 说明 |
+|------|------|------|
+| Phase 1 | `run.sh` | Whisper 转录 → AI 口误分析 → FFmpeg 剪辑 → 字幕烧录 |
+| Phase 2 | `content-repurpose.sh` | 中英文章 + 播客音频 (-16 LUFS) + 金句提取 + 封面图 + 元数据 |
+| Phase 3 | `pipeline.sh` 内置 | 5 平台文案并行生成（即刻/小红书/公众号/X Thread/X Post） |
+| Phase 4 | `generate-cards.sh` | 1080x1080 金句卡片 PNG（Chrome Headless 截图） |
+| Phase 5 | `pipeline.sh` 内置 | `manifest.json` 结构化清单 |
+| Phase 6 | `pipeline.sh` 内置 | 终端 Summary |
+| Phase 7 | `publish.sh` | 半自动发布到抖音/小红书/公众号/X |
+| Dashboard | `web/` | React 前端：上传 → 实时进度 → 内容预览 → 一键发布 |
+| 长视频拆条 | Dashboard 内置 | AI 章节分析 → 时间轴选择 → FFmpeg 切割 + 字幕 |
+
+### 发布平台
 
 | 平台 | 模式 | 说明 |
 |------|------|------|
@@ -164,25 +106,37 @@ cd web && npm install && npm run dev
 ### Web Dashboard
 
 ```bash
-cd web
-npm install
-npm run dev      # 开发模式 http://localhost:5173
+cd web && npm install
+npm run dev           # 开发模式 http://localhost:5173
 npm run build && npm start  # 生产模式 http://localhost:3789
 ```
 
-功能：
-- 拖拽上传视频，实时查看 6 阶段进度（SSE）
+- 拖拽上传视频，实时查看 7 阶段进度（SSE）
 - 完成后预览所有生成内容（文章、文案、卡片、推文）
 - 每个平台一键复制 + 打开发布页 + 标记已发布
-- **长视频拆条**：AI 分析章节 → 时间轴可视化选择 → FFmpeg 逐段切割 + 字幕烧录
+- 长视频拆条：AI 分析章节 → 时间轴可视化选择 → FFmpeg 逐段切割 + 字幕烧录
 
 ### 智能特性
 
 - **Retry 重试**：所有 Claude 调用自带 3 次指数退避重试（1s→3s→9s），stdin 缓存确保 prompt 不丢失
-- **并行生成**：Phase 3 的 5 个平台内容并行执行（~2.5min → ~30s）
+- **并行生成**：Phase 3 的 5 个平台内容并行执行
 - **断点续跑**：每阶段检查已有产物，失败后重跑自动跳过完成的阶段
-- **Feedback Loop**：审核 UI 捕获 AI 建议 vs 用户修正 diff，聚合后注入未来 AI prompt，越用越准
+- **Feedback Loop**：审核 UI 捕获 AI 建议 vs 用户修正 diff，聚合后注入未来 AI prompt
 - **字幕烧录**：Whisper 词级别 JSON → SRT → FFmpeg 烧录（PingFang SC 白字黑边）
+
+## API 参考（Web Dashboard）
+
+| Method | Path | 说明 |
+|--------|------|------|
+| `POST` | `/api/upload` | 上传视频文件（multipart） |
+| `GET` | `/api/pipeline/start?video=path` | SSE 实时 Pipeline 进度 |
+| `GET` | `/api/outputs` | 列出所有输出目录 |
+| `GET` | `/api/outputs/:dir` | 获取输出详情及内容 |
+| `GET` | `/api/outputs/:dir/file/:name` | 下载产物文件 |
+| `POST` | `/api/outputs/:dir/publish/:platform` | 更新发布状态 |
+| `GET` | `/api/split/transcribe?video=path` | SSE 转录进度（拆条用） |
+| `POST` | `/api/split/analyze` | AI 章节分析 |
+| `POST` | `/api/split/execute` | 执行视频拆条 |
 
 ## 技术栈
 
@@ -211,20 +165,17 @@ videocut/
 │   └── scripts/
 │       ├── whisper_transcribe.sh
 │       ├── generate_subtitles.js
-│       ├── generate_srt.js     # SRT 字幕生成
-│       ├── generate_review.js  # 审核网页
-│       ├── review_server.js    # 审核 HTTP 服务器
-│       ├── cut_video.sh        # FFmpeg 剪辑
-│       └── feedback_aggregator.js  # 用户修正聚合
+│       ├── generate_srt.js
+│       ├── generate_review.js
+│       ├── review_server.js
+│       ├── cut_video.sh
+│       └── feedback_aggregator.js
 ├── 字幕/                       # 字幕 Skill
 ├── 自进化/                     # 偏好自更新规则
 ├── web/                        # Web Dashboard
 │   ├── server.js               # Express 后端（API + SSE）
-│   ├── src/
-│   │   ├── pages/              # PipelinePage, PublishPage, SplitPage
-│   │   └── components/         # FileUpload, PhaseProgress, PlatformCard,
-│   │                           # ChapterTimeline, ChapterCard
-│   └── package.json
+│   └── src/
+│       └── pages/              # PipelinePage, PublishPage, SplitPage
 ├── examples/                   # 示例产出（封面图、卡片、文案）
 └── output/                     # 输出目录（gitignore）
 ```
@@ -247,8 +198,8 @@ output/YYYY-MM-DD_视频名/
 ├── 4_podcast.mp3               # 播客音频（-16 LUFS）
 ├── 4_quotes.json               # 金句 JSON
 ├── 4_video_meta.json           # 视频元数据（中英双语）
-├── 4_thumbnail.png             # 封面图（1280×720）
-├── 4_card_*.png                # 金句卡片（1080×1080）
+├── 4_thumbnail.png             # 封面图（1280x720）
+├── 4_card_*.png                # 金句卡片（1080x1080）
 ├── 5_jike_post.md              # 即刻文案
 ├── 5_xhs_caption.md            # 小红书文案
 ├── 5_wechat_article.md         # 公众号文章
@@ -261,69 +212,73 @@ output/YYYY-MM-DD_视频名/
 
 ## For AI Agents
 
-### 结构化元数据
+### Capability Contract
 
 ```yaml
 name: videocut
-description: One-command content factory — turns a single video into subtitled clips, articles, podcast audio, quote cards, and platform-specific posts for 8+ platforms
+type: cli-pipeline + web-dashboard
 version: 2.0.0
-cli_command: ./pipeline.sh
-cli_args: "<video_file> [--skip-edit] [--output-dir <dir>] [--publish]"
-language: bash
-dependencies:
-  - ffmpeg
-  - openai-whisper
-  - node (18+)
-  - claude-cli
-  - google-chrome
-input: video file (mp4/mov)
-output: output/<date>_<name>/ directory with manifest.json
-capabilities:
-  - transcribe video with local Whisper
-  - detect and remove stutters and filler words via AI
-  - burn subtitles into video (SRT + FFmpeg)
-  - generate Chinese and English articles from transcript
-  - generate platform-specific posts (Jike, Xiaohongshu, WeChat, X)
-  - extract podcast audio with loudness normalization
-  - generate thumbnail and quote card images
-  - semi-auto publish to 4 platforms
-  - split long videos into chapters via AI analysis
-exit_codes:
-  0: success
-  1: missing input / dependency error / phase failure
-commands:
-  - name: pipeline
-    run: ./pipeline.sh <video>
-    description: Full 7-phase pipeline
-    args:
-      - --skip-edit: Skip Phase 1
-      - --output-dir <dir>: Use existing output directory
-      - --publish: Run Phase 7 publishing
-  - name: edit
-    run: ./run.sh <video> [model] [--no-server]
-    description: Video rough cut + subtitle burn
-  - name: repurpose
-    run: ./content-repurpose.sh <output_dir> [video_path]
-    description: Content derivation
-  - name: cards
-    run: ./generate-cards.sh <4_quotes.json>
-    description: Quote card PNGs
-  - name: publish
-    run: ./publish.sh <output_dir> [--platform <name>]
-    description: Semi-auto publishing (douyin|xhs|wechat|x)
-web_dashboard:
-  start: cd web && npm install && npm start
-  port: 3789
-  endpoints:
-    - POST /api/upload: Upload video file
-    - GET /api/pipeline/start?video=path: SSE pipeline progress
-    - GET /api/outputs: List all output directories
-    - GET /api/outputs/:dir: Get output detail with content
-    - GET /api/outputs/:dir/file/:name: Serve output files
-    - POST /api/outputs/:dir/publish/:platform: Update publish status
-    - GET /api/split/transcribe?video=path: SSE transcription for splitting
-    - POST /api/split/analyze: AI chapter analysis
-    - POST /api/split/execute: Execute video splitting
+description: >
+  将口播视频一键转化为 8 平台全套发布物料。
+  Whisper 本地转录 → AI 口误检测 → FFmpeg 剪辑 + 字幕 → Claude CLI 内容降维 →
+  多平台文案并行生成 → 金句卡片 → 半自动发布。附带 React Web Dashboard。
+
+interface:
+  input:
+    - type: file
+      format: mp4, mov
+      description: 口播视频文件
+  output:
+    - type: directory
+      path: output/<date>_<name>/
+      manifest: manifest.json
+      description: 全部产物目录，manifest.json 含各文件路径及平台发布状态
+
+  commands:
+    pipeline:
+      run: ./pipeline.sh <video> [--skip-edit] [--output-dir <dir>] [--publish]
+      description: 完整 7 阶段 Pipeline
+    edit:
+      run: ./run.sh <video> [model] [--no-server] [--no-subtitle]
+      description: 视频粗剪 + 字幕烧录
+    repurpose:
+      run: ./content-repurpose.sh <output_dir> [video_path]
+      description: 内容降维
+    cards:
+      run: ./generate-cards.sh <4_quotes.json>
+      description: 金句卡片生成
+    publish:
+      run: ./publish.sh <output_dir> [--platform douyin|xhs|wechat|x]
+      description: 半自动发布
+
+  failure_modes:
+    - condition: 视频文件不存在
+      exit_code: 1
+      behavior: stderr 提示路径
+    - condition: 依赖缺失 (ffmpeg/whisper/node)
+      exit_code: 1
+      behavior: 依赖检查失败
+    - condition: Claude CLI 未认证
+      exit_code: 1
+      behavior: Phase 2+ 挂起
+    - condition: Phase 中途失败
+      exit_code: 1
+      behavior: 断点续跑自动跳过已完成阶段
+
+  dependencies:
+    runtime: [ffmpeg, openai-whisper, "node 18+", claude-cli, google-chrome]
+
+  web_dashboard:
+    start: cd web && npm install && npm start
+    port: 3789
+    endpoints:
+      - POST /api/upload
+      - GET /api/pipeline/start?video=path (SSE)
+      - GET /api/outputs
+      - GET /api/outputs/:dir
+      - POST /api/outputs/:dir/publish/:platform
+      - POST /api/split/analyze
+      - POST /api/split/execute
 ```
 
 ### Agent 调用示例
@@ -333,18 +288,17 @@ import subprocess
 import json
 from pathlib import Path
 
-# Run full pipeline with publishing
 result = subprocess.run(
     ["./pipeline.sh", "/path/to/video.mp4", "--publish"],
     cwd="/path/to/videocut",
     capture_output=True, text=True, timeout=600
 )
+if result.returncode != 0:
+    raise RuntimeError(f"Pipeline failed: {result.stderr}")
 
-# Read structured output
 output_dir = sorted(Path("/path/to/videocut/output").iterdir())[-1]
 manifest = json.loads((output_dir / "manifest.json").read_text())
 
-# Access content
 article_cn = (output_dir / "4_article_cn.md").read_text()
 x_thread = json.loads((output_dir / "5_x_thread.json").read_text())
 platforms = manifest["platforms"]  # status: pending/published/skipped
