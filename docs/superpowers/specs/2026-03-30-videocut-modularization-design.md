@@ -1,7 +1,7 @@
 # Videocut Modularization Design
 
 **Date:** 2026-03-30
-**Status:** Draft
+**Status:** Approved
 **Author:** Wendy + Claude
 
 ## Goal
@@ -88,6 +88,15 @@ Output: transcript.json   — Whisper word-level JSON with timestamps
 
 **Internal:** Extract audio (FFmpeg) → Whisper transcribe → Generate SRT from word-level JSON
 
+**Transcript schema:** Whisper outputs Volcengine-compatible JSON (`utterances[].words[]` with `start_time`/`end_time` in ms), then converted to canonical word-level format:
+```json
+[
+  {"text": "你好", "start": 0.5, "end": 0.9, "isGap": false},
+  {"start": 0.9, "end": 1.5, "isGap": true}
+]
+```
+This canonical format is what all downstream capabilities consume. Volcengine engine support is preserved via `--engine` flag (`whisper` default, `volcengine` optional).
+
 ### 2. AutoCut
 
 **Purpose:** Remove filler words, stutters, silence from spoken-word video
@@ -101,6 +110,13 @@ Output: cut.mp4            — Edited video
 **CLI:** `videocut autocut input.mp4 -o output/ [--no-review] [--model small]`
 
 **Internal:** Transcribe → Silence detection (≥0.5s gaps) → AI stutter analysis (Claude + rules/*.md) → Optional review server → FFmpeg cut
+
+**Internal artifacts** (not pipeline outputs, only for debugging):
+- `readable.txt` — idx|text|time-range for AI analysis
+- `sentences.txt` — sentence-level grouping
+- `auto_selected.json` — silence + AI merged deletion indices
+- `delete_segments.json` — time-based deletion ranges for FFmpeg
+- `review.html` — interactive review page (when `--no-review` is not set)
 
 **AI analysis rules** live in `capabilities/autocut/rules/`. Users can add custom .md rule files — AI reads all files in the directory. Existing rules:
 - 1-核心原则.md, 2-语气词检测.md, 3-静音段处理.md, 4-重复句检测.md
@@ -205,10 +221,21 @@ Chain capabilities in sequence:
 videocut pipeline input.mp4 --steps autocut,subtitle,hook,cover
 ```
 
-`pipeline.js` passes each step's output as the next step's input. Steps run in declared order. If a step fails, pipeline stops and reports which step failed.
+`pipeline.js` passes the **entire output directory** to each step. Each capability's `index.js` looks in the directory for what it needs (e.g., Hook looks for `subtitle.srt`, Cover looks for `hooks.json`). If a step fails, pipeline stops and reports which step failed. Partial outputs are kept (not cleaned up) for debugging.
+
+**Capability interface:** Every `capabilities/*/index.js` exports:
+```js
+async function run({ input, outputDir, options }) → { video?, srt?, json?, artifacts }
+```
+`input` is the video file path. `outputDir` is shared across all steps in a pipeline run. `options` are capability-specific flags.
+
+**Transcription caching:** If `outputDir` already contains a `transcript.json` matching the input video (checked by filename), Transcribe is skipped. This avoids redundant Whisper runs when multiple capabilities need transcription in the same pipeline.
+
+**Recommended step order:** `autocut → speed → subtitle → hook → clip → cover`. Speed runs before Subtitle so subtitles are generated against the final-speed video.
 
 **Common chains:**
 - `autocut,subtitle` — Cut then add subtitles (most common)
+- `autocut,speed,subtitle` — Cut, speed up, then subtitles
 - `autocut,subtitle,hook,cover` — Full production
 - `hook` — Just extract hooks from raw video
 - `clip` — Just split into chapters
@@ -258,6 +285,10 @@ videocut <capability> <input> [-o output_dir] [flags]
 | `剪口播/scripts/whisper_transcribe.sh` | `capabilities/transcribe/whisper.sh` |
 | `剪口播/scripts/cut_video.sh` | `capabilities/autocut/cut.sh` |
 | `剪口播/scripts/detect_hardcoded_subtitles.js` | `capabilities/subtitle/detect.js` |
+| `剪口播/scripts/generate_subtitles.js` | `capabilities/transcribe/generate_words.js` |
+| `剪口播/scripts/generate_srt.js` | `lib/srt.js` (refactored into module) |
+| `剪口播/scripts/review_server.js` | `capabilities/autocut/review_server.js` |
+| `剪口播/scripts/feedback_aggregator.js` | `capabilities/autocut/feedback_aggregator.js` |
 | `剪口播/用户习惯/*.md` | `capabilities/autocut/rules/` |
 | `generate-cards.sh` | `capabilities/cover/generate.sh` |
 
@@ -283,8 +314,39 @@ videocut <capability> <input> [-o output_dir] [flags]
 | `pipeline.js` | Capability chaining |
 | `7 × SKILL.md` | Agent documentation |
 
+## Dependencies
+
+```json
+{
+  "name": "videocut",
+  "bin": { "videocut": "./cli.js" },
+  "dependencies": {}
+}
+```
+
+No npm dependencies. The project uses:
+- Node.js built-ins (`child_process`, `fs`, `path`) for orchestration
+- `claude` CLI (shelled out via child_process) for AI analysis
+- FFmpeg/FFprobe (shelled out) for video processing
+- Whisper CLI (shelled out) for transcription
+- Chrome/Chromium (shelled out via `--headless`) for screenshot generation
+
+This keeps the project zero-dependency and portable.
+
+## Error Handling
+
+- **Dependency checks:** `cli.js` checks for FFmpeg, Whisper, Claude CLI, Chrome at startup. Missing tools get a clear error message with install instructions.
+- **Partial output:** On failure, intermediate files are kept in outputDir for debugging. No cleanup.
+- **AI retry:** `lib/claude.js` retries 3x with exponential backoff (1s → 3s → 9s). Empty or unparseable AI output triggers retry.
+- **FFmpeg failures:** `lib/ffmpeg.js` captures stderr and throws with the FFmpeg error message. Common failures (corrupt video, disk full, unsupported codec) are detected and reported clearly.
+
 ## Constraints
 
 - **Spoken-word video only** (for now). Single speaker, no background music. Future: extend to other formats.
 - **Local execution only.** FFmpeg, Whisper, Chrome all run locally. No cloud dependencies except Claude API for AI analysis.
 - **No web dashboard changes** in this scope. web/ directory stays as-is.
+
+## Implementation Notes
+
+- **Clip capability** can supplement AI text analysis with FFmpeg scene detection (`select='gt(scene,0.3)'`) for more accurate chapter boundaries.
+- **AutoCut review** can generate a low-res proxy video (`scale=960:-2, -preset ultrafast`) for faster loading in the review UI.
