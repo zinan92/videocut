@@ -2,12 +2,12 @@
 
 # Videocut
 
-**一条口播视频进去，8 个平台的全套发布物料出来 -- 从粗剪到半自动发布的一键内容工厂**
+**口播视频编辑能力集。7 个独立 CLI 工具，各自可用，也可串联成流水线。**
 
-[![Bash](https://img.shields.io/badge/Bash-Pipeline-4EAA25.svg?logo=gnubash&logoColor=white)](https://github.com/zinan92/videocut)
-[![Claude CLI](https://img.shields.io/badge/Claude_CLI-AI_Engine-CC785C.svg?logo=anthropic&logoColor=white)](https://docs.anthropic.com/en/docs/claude-cli)
+[![Node.js](https://img.shields.io/badge/node-18+-339933.svg)](https://nodejs.org)
 [![FFmpeg](https://img.shields.io/badge/FFmpeg-Audio%2FVideo-007808.svg?logo=ffmpeg&logoColor=white)](https://ffmpeg.org/)
-[![React](https://img.shields.io/badge/React_18-Dashboard-61DAFB.svg?logo=react&logoColor=black)](https://react.dev/)
+[![Claude CLI](https://img.shields.io/badge/Claude_CLI-AI_Engine-CC785C.svg?logo=anthropic&logoColor=white)](https://docs.anthropic.com/en/docs/claude-cli)
+[![Tests](https://img.shields.io/badge/tests-91_passing-brightgreen.svg)](#)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 
 </div>
@@ -16,359 +16,297 @@
 
 ```
 in  视频文件 (mp4/mov)
-out output/<date>_<name>/ 目录，含：
-    带字幕剪辑成片 + 中英文章 + 播客音频 + 金句卡片 + 封面图 + 8 平台文案 + manifest.json
+out 剪辑视频 + 字幕 + 金句片段 + 封面卡片 + 章节切片
 
-fail 视频文件不存在           → exit 1, stderr 提示路径
-fail ffmpeg/whisper/node 缺失 → exit 1, 依赖检查失败
-fail Claude CLI 未认证       → Phase 2+ 挂起，需先 claude auth
-fail Chrome 未安装           → Phase 4 卡片/封面生成跳过
-fail 某 Phase 中途失败       → exit 1, 重跑自动跳过已完成阶段（断点续跑）
+fail 视频文件不存在           → exit 1, 提示路径
+fail ffmpeg/whisper/node 缺失 → exit 1, 依赖检查提示安装
+fail Claude CLI 未认证       → AI 分析步骤失败，可用静音检测 fallback
+fail Chrome 未安装           → cover 能力跳过
 ```
 
 ## 示例输出
 
-一条 5 分钟口播视频，pipeline 产出以下物料：
+```bash
+$ node cli.js videocut autocut ~/录制.mp4 -o /tmp/demo/ --no-review
 
-**封面图 (1280x720)** -- 自动提取标题 + 品牌色渲染
+═══ AutoCut: Transcribing ═══
+  Extracting audio...
+  Transcribing (model: small)...
+  Done: 42 subtitle entries
+═══ AutoCut: Silence detection ═══
+  12 silence segments (≥0.5s)
+═══ AutoCut: AI analysis ═══
+  AI marked 8 additional segments
+═══ AutoCut: Cutting ═══
+  ✅ AutoCut complete: /tmp/demo/cut.mp4
+```
+
+**封面图 (1280x720)** — 自动提取标题 + 品牌色渲染
 
 ![封面图示例](examples/4_thumbnail.png)
 
-**金句卡片 (1080x1080)** -- 从转录中提取核心金句，Chrome Headless 渲染
+**金句卡片 (1080x1080)** — 从转录中提取核心金句，Chrome Headless 渲染
 
 ![金句卡片示例](examples/4_card_1.png)
 
-**多平台文案** -- 同一条视频自动生成 5 种平台风格文案：
+## 7 个能力
 
-<details>
-<summary>小红书文案示例</summary>
+| 能力 | 做什么 | 命令 |
+|------|--------|------|
+| **transcribe** | 语音→文字 (Whisper) | `videocut transcribe input.mp4 -o out/` |
+| **autocut** | 去语气词/停顿/口误 | `videocut autocut input.mp4 -o out/ --no-review` |
+| **subtitle** | 检测/生成/烧录字幕 | `videocut subtitle input.mp4 -o out/` |
+| **hook** | 提取金句 + 切视频片段 | `videocut hook input.mp4 -o out/ --count 4` |
+| **clip** | 长视频拆短视频 (章节级) | `videocut clip input.mp4 -o out/` |
+| **cover** | 封面 + 金句卡片 | `videocut cover -o out/ --quotes hooks.json` |
+| **speed** | 变速 (1.1x-1.2x) | `videocut speed input.mp4 -o out/ --rate 1.1` |
 
-```
-说个扎心的真相：AI 替代不是未来，是正在发生 😱
+每个能力独立可用，也可通过 pipeline 串联：
 
-全国都在疯狂开 AI 大会，深圳、无锡各地出政策鼓励用 AI 创业 🔥
-我用 Cursor 三四百小时，Claude Code 快一年，每月烧 200 刀 💸
-...
-
-#AI替代 #人工智能 #职场危机 #AI工具 #ClaudeCode
-```
-
-</details>
-
-<details>
-<summary>X/Twitter Hot Take 示例</summary>
-
-```
-AI hasn't satisfactorily replaced you yet not because it can't do your job
-but because nobody's wired it into the messy cross-domain workflow your job
-actually is. That's an integration problem, not a capability one — and
-integration problems get solved.
-```
-
-</details>
-
-**完整输出目录结构：**
-
-```
-output/YYYY-MM-DD_视频名/
-├── 1_audio.mp3                 # 提取的音频
-├── 1_subtitles.srt             # SRT 字幕文件
-├── 3_output_subtitled.mp4      # 剪辑成片（带字幕）
-├── 4_article_cn.md             # 中文文章
-├── 4_article_en.md             # 英文文章
-├── 4_podcast.mp3               # 播客音频（-16 LUFS）
-├── 4_quotes.json               # 金句 JSON
-├── 4_thumbnail.png             # 封面图
-├── 4_card_*.png                # 金句卡片
-├── 5_jike_post.md              # 即刻文案
-├── 5_xhs_caption.md            # 小红书文案
-├── 5_wechat_article.md         # 公众号文章
-├── 5_x_thread.json             # X Thread
-├── 5_x_post.md                 # X 单条 hot take
-├── manifest.json               # 全部产物清单 + 发布状态
-└── splits/                     # 长视频拆条产物（可选）
+```bash
+videocut pipeline input.mp4 --steps autocut,speed,subtitle,hook,cover -o output/
 ```
 
 ## 架构
 
 ```
-                      pipeline.sh (master orchestrator)
-                                 |
-         ┌───────────────────────┼───────────────────────┐
-         v                       v                       v
-   ┌──────────┐          ┌──────────────┐        ┌──────────────┐
-   │  run.sh  │          │  content-    │        │  generate-   │
-   │ 视频粗剪  │          │  repurpose   │        │  cards.sh    │
-   │ + 字幕    │          │  内容降维     │        │  金句卡片     │
-   └──────────┘          └──────────────┘        └──────────────┘
-        |                       |                       |
-   Whisper 转录           Claude CLI x9           Chrome Headless
-   AI 口误分析            (并行，带重试)            HTML → PNG
-   FFmpeg 剪辑 + 字幕
-        |                       |                       |
-        └───────────────────────┼───────────────────────┘
-                                v
-                    ┌───────────────────┐
-                    │   publish.sh      │
-                    │  4 平台半自动发布   │
-                    └───────────────────┘
-                                |
-                    ┌───────────────────┐
-                    │  Web Dashboard    │
-                    │  React + Express  │
-                    │  实时进度 + 发布   │
-                    └───────────────────┘
+                        node cli.js <capability> [args]
+                                    │
+              ┌──────────┬──────────┼──────────┬──────────┐
+              ▼          ▼          ▼          ▼          ▼
+         transcribe  autocut   subtitle    hook       clip   cover  speed
+              │          │          │          │          │     │      │
+              │     ┌────┴────┐     │     ┌────┴────┐    │     │      │
+              ▼     ▼         ▼     ▼     ▼         ▼    ▼     ▼      ▼
+           Whisper  Claude  cut.sh  burn.sh  match.js  split.sh  Chrome  FFmpeg
+                    (AI分析) (FFmpeg)        (SRT匹配) (FFmpeg)  截图    atempo
+
+共享库: lib/ffmpeg.js  lib/srt.js  lib/claude.js
 ```
+
+**设计原则:** Node.js 做数据处理（JSON/SRT/AI 调用），Bash 做 FFmpeg 命令。两种语言边界清晰，不互相内联。
 
 ## 快速开始
 
 ```bash
-# 安装依赖
+# 安装系统依赖
 brew install ffmpeg node
 pip install openai-whisper
 # Claude CLI: https://docs.anthropic.com/en/docs/claude-cli
-# 封面和卡片依赖 Google Chrome
 
+# 克隆（零 npm 依赖，不需要 npm install）
 git clone https://github.com/zinan92/videocut.git
 cd videocut
 
-# CLI: 一键生成全部内容
-./pipeline.sh video.mp4
+# 最常用：剪口播 + 加字幕
+node cli.js pipeline input.mp4 --steps autocut,subtitle -o output/ --no-review
 
-# CLI: 生成 + 发布
-./pipeline.sh video.mp4 --publish
-
-# Web Dashboard
-cd web && npm install && npm run dev
-# 打开 http://localhost:5173
+# 单独用某个能力
+node cli.js hook input.mp4 -o output/ --count 4
 ```
 
-**分步执行：**
+## 能力详解
+
+### Transcribe
+
+语音转文字。Whisper 本地转录，输出逐词 JSON + 纯文本 + SRT。
 
 ```bash
-./run.sh video.mp4 small --no-server            # 仅粗剪
-./content-repurpose.sh ./output/2026-02-26_video/  # 仅内容降维
-./generate-cards.sh ./output/2026-02-26_video/4_quotes.json  # 仅金句卡片
-./publish.sh ./output/2026-02-26_video/          # 仅发布
-./publish.sh ./output/2026-02-26_video/ --platform x  # 只发 X
-
-# 断点续跑
-./pipeline.sh video.mp4 --skip-edit --output-dir ./output/2026-02-26_video/
+node cli.js transcribe input.mp4 -o output/ --model small
+# → output/transcript.json, transcript.txt, transcript.srt
 ```
 
-## 功能一览
+### AutoCut
 
-| 阶段 | 脚本 | 说明 |
-|------|------|------|
-| Phase 1 | `run.sh` | Whisper 转录 → AI 口误分析 → FFmpeg 剪辑 → 字幕烧录 |
-| Phase 2 | `content-repurpose.sh` | 中英文章 + 播客音频 (-16 LUFS) + 金句提取 + 封面图 + 元数据 |
-| Phase 3 | `pipeline.sh` 内置 | 5 平台文案并行生成（即刻/小红书/公众号/X Thread/X Post） |
-| Phase 4 | `generate-cards.sh` | 1080x1080 金句卡片 PNG（Chrome Headless 截图） |
-| Phase 5 | `pipeline.sh` 内置 | `manifest.json` 结构化清单 |
-| Phase 6 | `pipeline.sh` 内置 | 终端 Summary |
-| Phase 7 | `publish.sh` | 半自动发布到抖音/小红书/公众号/X |
-| Dashboard | `web/` | React 前端：上传 → 实时进度 → 内容预览 → 一键发布 |
-| 长视频拆条 | Dashboard 内置 | AI 章节分析 → 时间轴选择 → FFmpeg 切割 + 字幕 |
-
-### 发布平台
-
-| 平台 | 模式 | 说明 |
-|------|------|------|
-| 抖音 | 半自动 | 复制标题 → 打开创作者中心 → 手动上传 |
-| 小红书 | 半自动 | 复制文案 → 打开创作者中心 → 手动上传卡片图 |
-| 公众号 | 半自动 | 复制文章 → 打开后台 → 手动排版发布 |
-| X/Twitter | 自动/半自动 | 安装 [bird CLI](https://github.com/nicholasgasior/bird) 后自动发 thread |
-
-### 智能特性
-
-- **Retry 重试** -- 所有 Claude 调用自带 3 次指数退避重试（1s->3s->9s），stdin 缓存确保 prompt 不丢失
-- **并行生成** -- Phase 3 的 5 个平台内容并行执行
-- **断点续跑** -- 每阶段检查已有产物，失败后重跑自动跳过完成的阶段
-- **Feedback Loop** -- 审核 UI 捕获 AI 建议 vs 用户修正 diff，聚合后注入未来 AI prompt
-- **字幕烧录** -- Whisper 词级别 JSON → SRT → FFmpeg 烧录（PingFang SC 白字黑边）
-
-### Web Dashboard
+AI 分析口误 + 静音检测，自动粗剪。9 条可扩展规则（语气词、卡顿词、重复句、残句等）。
 
 ```bash
-cd web && npm install
-npm run dev           # 开发模式 http://localhost:5173
-npm run build && npm start  # 生产模式 http://localhost:3789
+node cli.js autocut input.mp4 -o output/ --no-review
+# → output/cut.mp4, cut_feedback.json
 ```
 
-- 拖拽上传视频，实时查看 7 阶段进度（SSE）
-- 完成后预览所有生成内容（文章、文案、卡片、推文）
-- 每个平台一键复制 + 打开发布页 + 标记已发布
-- 长视频拆条：AI 分析章节 → 时间轴可视化选择 → FFmpeg 逐段切割 + 字幕烧录
+自定义规则：往 `capabilities/autocut/rules/` 加 `.md` 文件，AI 自动读取。
 
-### API 参考
+### Subtitle
 
-| Method | Path | 说明 |
-|--------|------|------|
-| `POST` | `/api/upload` | 上传视频文件（multipart） |
-| `GET` | `/api/pipeline/start?video=path` | SSE 实时 Pipeline 进度 |
-| `GET` | `/api/outputs` | 列出所有输出目录 |
-| `GET` | `/api/outputs/:dir` | 获取输出详情及内容 |
-| `GET` | `/api/outputs/:dir/file/:name` | 下载产物文件 |
-| `POST` | `/api/outputs/:dir/publish/:platform` | 更新发布状态 |
-| `GET` | `/api/split/transcribe?video=path` | SSE 转录进度（拆条用） |
-| `POST` | `/api/split/analyze` | AI 章节分析 |
-| `POST` | `/api/split/execute` | 执行视频拆条 |
+检测视频是否有硬字幕。没有则转录 + 生成 SRT + FFmpeg 烧录（PingFang SC 白字黑边）。
 
-## 技术栈
+```bash
+node cli.js subtitle cut.mp4 -o output/
+# → output/subtitled.mp4, subtitle.srt
+```
 
-| 层级 | 技术 | 用途 |
-|------|------|------|
-| 编排 | Bash | Pipeline 编排、断点续跑、参数解析 |
-| 转录 | openai-whisper | 本地语音转录（tiny/base/small/medium/large） |
-| AI | Claude CLI | 口误分析、文章改写、金句提取、元数据生成、平台文案、章节分析 |
-| 音视频 | FFmpeg | 音频提取、视频剪辑、播客规范化 (-16 LUFS)、字幕烧录 |
-| 截图 | Chrome Headless | 封面图 + 金句卡片 HTML → PNG |
-| 前端 | React 18 + Vite 5 + Tailwind 3 | Web Dashboard |
-| 后端 | Express 4 + Multer | 文件上传、SSE 实时推送、内容 API |
-| 字幕 | Node.js | SRT 生成、字级别字幕处理 |
+**关键设计：** 字幕对着输入视频重新转录，不做时间偏移。先 autocut 再 subtitle，字幕天然对齐。
+
+### Hook
+
+AI 选金句 → SRT 逐字匹配定位时间段 → FFmpeg 切片 + 拼接。
+
+```bash
+node cli.js hook input.mp4 -o output/ --count 4
+# → output/hooks.json, hook.mp4, hook_segments/
+```
+
+匹配算法：字符级精确匹配 + 最长公共子串模糊 fallback，过滤语速/时长/重叠，太短自动扩展到 3s。
+
+### Clip
+
+AI 章节分析（2-5 分钟粒度，语义断句）→ FFmpeg 分段切割。
+
+```bash
+node cli.js clip input.mp4 -o output/ --min-duration 120 --max-duration 300
+# → output/chapters.json, clips/*.mp4
+```
+
+### Cover
+
+从金句生成 1080x1080 卡片 PNG（Chrome Headless 截图）。
+
+```bash
+node cli.js cover -o output/ --quotes output/hooks.json
+# → output/card_1.png, card_2.png, ...
+```
+
+### Speed
+
+变速播放，音高不变。默认 1.1x，上限 1.2x。
+
+```bash
+node cli.js speed input.mp4 -o output/ --rate 1.1
+# → output/speed.mp4
+```
+
+## Pipeline 模式
+
+串联多个能力，共享输出目录：
+
+```bash
+# 最常用
+node cli.js pipeline input.mp4 --steps autocut,subtitle -o output/
+
+# 完整生产
+node cli.js pipeline input.mp4 --steps autocut,speed,subtitle,hook,cover -o output/
+```
+
+推荐顺序：`autocut → speed → subtitle → hook → clip → cover`
 
 ## 项目结构
 
 ```
 videocut/
-├── pipeline.sh                 # 一键 Pipeline（7 阶段编排）
-├── run.sh                      # 视频粗剪 + 字幕烧录
-├── content-repurpose.sh        # 内容降维
-├── generate-cards.sh           # 金句卡片生成
-├── publish.sh                  # 4 平台半自动发布
-├── 剪口播/
-│   ├── 用户习惯/               # AI 口误分析规则
-│   └── scripts/
-│       ├── whisper_transcribe.sh
-│       ├── generate_subtitles.js
-│       ├── generate_srt.js
-│       ├── generate_review.js
-│       ├── review_server.js
-│       ├── cut_video.sh
-│       └── feedback_aggregator.js
-├── 字幕/                       # 字幕 Skill
-├── 自进化/                     # 偏好自更新规则
-├── web/                        # Web Dashboard
-│   ├── server.js               # Express 后端（API + SSE）
-│   └── src/
-│       └── pages/              # PipelinePage, PublishPage, SplitPage
-├── examples/                   # 示例产出（封面图、卡片、文案）
-└── output/                     # 输出目录（gitignore）
+├── cli.js                     # 统一 CLI 入口
+├── pipeline.js                # 能力串联
+├── package.json               # 零依赖
+├── capabilities/
+│   ├── transcribe/            # 语音转文字
+│   │   ├── index.js
+│   │   ├── whisper.sh
+│   │   └── SKILL.md
+│   ├── autocut/               # 粗剪
+│   │   ├── index.js
+│   │   ├── cut.sh
+│   │   ├── rules/             # 9 条 AI 分析规则
+│   │   └── SKILL.md
+│   ├── subtitle/              # 字幕
+│   ├── hook/                  # 金句
+│   ├── clip/                  # 拆条
+│   ├── cover/                 # 封面卡片
+│   └── speed/                 # 变速
+├── lib/
+│   ├── ffmpeg.js              # FFmpeg 封装
+│   ├── srt.js                 # SRT 解析/生成/合并
+│   └── claude.js              # AI 调用 + 重试
+├── tests/                     # 91 tests
+└── web/                       # Web Dashboard (React + Express)
 ```
 
-## 配置
+## 技术栈
 
-Pipeline 通过命令行参数配置，无需配置文件：
+| 层级 | 技术 | 用途 |
+|------|------|------|
+| CLI | Node.js 18+ (built-ins only) | 编排 + 数据处理 |
+| AI | Claude CLI | 口误分析、金句选择、章节分析 |
+| 转录 | Whisper | 本地语音转文字 |
+| 音视频 | FFmpeg | 剪辑、字幕烧录、变速、切片 |
+| 截图 | Chrome Headless | 封面 + 金句卡片 |
+| 前端 | React 18 + Vite + Tailwind | Web Dashboard |
 
-| 参数 | 说明 | 默认值 |
-|------|------|--------|
-| `<video>` | 视频文件路径（必须） | -- |
-| `--skip-edit` | 跳过 Phase 1 视频剪辑 | false |
-| `--output-dir <dir>` | 指定已有 output 目录（断点续跑） | 自动生成 |
-| `--publish` | 启用 Phase 7 半自动发布 | false |
-| `--no-server` | run.sh 跳过审核 UI | false |
-| `--no-subtitle` | run.sh 跳过字幕烧录 | false |
-| `--platform <name>` | publish.sh 指定单一平台 | 全部 |
-
-Whisper 模型通过 `run.sh` 第二参数指定（`tiny`/`base`/`small`/`medium`/`large`），默认 `small`。
+零 npm 依赖。clone 即用。
 
 ## For AI Agents
+
+每个能力有独立的 `SKILL.md`，读 `capabilities/<name>/SKILL.md` 获取详细用法。
 
 ### Capability Contract
 
 ```yaml
 name: videocut
-type: cli-pipeline + web-dashboard
 version: 2.0.0
-description: >
-  将口播视频一键转化为 8 平台全套发布物料。
-  Whisper 本地转录 → AI 口误检测 → FFmpeg 剪辑 + 字幕 → Claude CLI 内容降维 →
-  多平台文案并行生成 → 金句卡片 → 半自动发布。附带 React Web Dashboard。
-
-interface:
-  input:
-    - type: file
-      format: mp4, mov
-      description: 口播视频文件
-  output:
-    - type: directory
-      path: output/<date>_<name>/
-      manifest: manifest.json
-      description: 全部产物目录，manifest.json 含各文件路径及平台发布状态
-
-  commands:
-    pipeline:
-      run: ./pipeline.sh <video> [--skip-edit] [--output-dir <dir>] [--publish]
-      description: 完整 7 阶段 Pipeline
-    edit:
-      run: ./run.sh <video> [model] [--no-server] [--no-subtitle]
-      description: 视频粗剪 + 字幕烧录
-    repurpose:
-      run: ./content-repurpose.sh <output_dir> [video_path]
-      description: 内容降维
-    cards:
-      run: ./generate-cards.sh <4_quotes.json>
-      description: 金句卡片生成
-    publish:
-      run: ./publish.sh <output_dir> [--platform douyin|xhs|wechat|x]
-      description: 半自动发布
-
-  failure_modes:
-    - condition: 视频文件不存在
-      exit_code: 1
-      behavior: stderr 提示路径
-    - condition: 依赖缺失 (ffmpeg/whisper/node)
-      exit_code: 1
-      behavior: 依赖检查失败
-    - condition: Claude CLI 未认证
-      exit_code: 1
-      behavior: Phase 2+ 挂起
-    - condition: Phase 中途失败
-      exit_code: 1
-      behavior: 断点续跑自动跳过已完成阶段
-
-  dependencies:
-    runtime: [ffmpeg, openai-whisper, "node 18+", claude-cli, google-chrome]
-
-  web_dashboard:
-    start: cd web && npm install && npm start
-    port: 3789
-    endpoints:
-      - POST /api/upload
-      - GET /api/pipeline/start?video=path (SSE)
-      - GET /api/outputs
-      - GET /api/outputs/:dir
-      - POST /api/outputs/:dir/publish/:platform
-      - POST /api/split/analyze
-      - POST /api/split/execute
+capability:
+  summary: 7 independent video editing capabilities for spoken-word content
+  in: video file (mp4/mov)
+  out: edited video + subtitles + hook clips + cover cards + chapter clips
+  fail:
+    - "file not found → exit 1"
+    - "dependency missing → error + install instructions"
+    - "AI call failed → fallback to silence detection (autocut) or skip (hook/clip)"
+cli_command: node cli.js
+cli_args:
+  - name: capability
+    type: string
+    required: true
+    description: "transcribe | autocut | subtitle | hook | clip | cover | speed | pipeline"
+  - name: input
+    type: string
+    required: false
+    description: "输入视频文件路径"
+cli_flags:
+  - name: -o
+    type: string
+    description: "输出目录"
+  - name: --no-review
+    type: boolean
+    description: "跳过审核 UI (autocut)"
+  - name: --steps
+    type: string
+    description: "pipeline 步骤 (逗号分隔)"
+  - name: --count
+    type: number
+    description: "金句数量 (hook)"
+  - name: --rate
+    type: number
+    description: "变速倍率 (speed, 1.0-1.2)"
+  - name: --model
+    type: string
+    description: "Whisper 模型 (tiny/base/small/medium/large)"
 ```
 
 ### Agent 调用示例
 
 ```python
 import subprocess
-import json
-from pathlib import Path
 
+# 口播视频 → 粗剪 + 加字幕
 result = subprocess.run(
-    ["./pipeline.sh", "/path/to/video.mp4", "--publish"],
-    cwd="/path/to/videocut",
-    capture_output=True, text=True, timeout=600
+    ["node", "cli.js", "pipeline", "input.mp4",
+     "--steps", "autocut,subtitle", "-o", "output/", "--no-review"],
+    capture_output=True, text=True, cwd="/path/to/videocut"
 )
-if result.returncode != 0:
-    raise RuntimeError(f"Pipeline failed: {result.stderr}")
 
-output_dir = sorted(Path("/path/to/videocut/output").iterdir())[-1]
-manifest = json.loads((output_dir / "manifest.json").read_text())
-
-article_cn = (output_dir / "4_article_cn.md").read_text()
-x_thread = json.loads((output_dir / "5_x_thread.json").read_text())
-platforms = manifest["platforms"]  # status: pending/published/skipped
+# 提取金句
+result = subprocess.run(
+    ["node", "cli.js", "hook", "input.mp4", "-o", "output/", "--count", "4"],
+    capture_output=True, text=True, cwd="/path/to/videocut"
+)
 ```
 
 ## 相关项目
 
-- [content-co](https://github.com/zinan92) -- 内容生产协作系统（videocut 是其中的视频制作模块）
+| 项目 | 说明 | 链接 |
+|------|------|------|
+| content-toolkit | 统一内容流水线 CLI（videocut 是其中的 stage 6） | [zinan92/content-toolkit](https://github.com/zinan92/content-toolkit) |
+| content-downloader | 统一内容下载器 | [zinan92/content-downloader](https://github.com/zinan92/content-downloader) |
+| content-rewriter | 跨平台内容改写 | [zinan92/content-rewriter](https://github.com/zinan92/content-rewriter) |
 
 ## License
 
