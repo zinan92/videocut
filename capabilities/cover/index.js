@@ -34,7 +34,7 @@ async function run({ input, outputDir, options = {} }) {
   let quotes;
 
   if (options.text) {
-    quotes = [{ quote_text: options.text, hook_score: 10 }];
+    quotes = [{ quote: options.text, context: '' }];
   } else if (options.quotes) {
     const raw = fs.readFileSync(options.quotes, 'utf8');
     quotes = JSON.parse(raw);
@@ -54,6 +54,12 @@ async function run({ input, outputDir, options = {} }) {
       'No quotes found. Provide --quotes <file> or --text "金句" or run the hook capability first.'
     );
   }
+
+  // Normalize field names: accept both {quote_text} and {quote} formats
+  quotes = quotes.map((q) => ({
+    quote: q.quote || q.quote_text || '',
+    context: q.context || q.source || '',
+  }));
 
   // Step 2: Limit to MAX_QUOTES
   const limited = quotes.slice(0, MAX_QUOTES);
