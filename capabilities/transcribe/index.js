@@ -29,16 +29,17 @@ async function run({ input, outputDir, options = {} }) {
     throw new Error(`Input file not found: ${input}`);
   }
 
-  // Ensure output directory exists
+  // Ensure output directory exists and resolve to absolute
   fs.mkdirSync(outputDir, { recursive: true });
+  const absOutputDir = path.resolve(outputDir);
 
-  const transcriptPath = path.join(outputDir, 'transcript.json');
+  const transcriptPath = path.join(absOutputDir, 'transcript.json');
 
   // Cache check: if transcript.json already exists, return early
   if (fs.existsSync(transcriptPath)) {
     const words = JSON.parse(fs.readFileSync(transcriptPath, 'utf8'));
-    const txtPath = path.join(outputDir, 'transcript.txt');
-    const srtPath = path.join(outputDir, 'transcript.srt');
+    const txtPath = path.join(absOutputDir, 'transcript.txt');
+    const srtPath = path.join(absOutputDir, 'transcript.srt');
     return {
       words,
       srt: srtPath,
@@ -52,21 +53,21 @@ async function run({ input, outputDir, options = {} }) {
   }
 
   // Step 1: Extract audio
-  const audioPath = path.join(outputDir, 'audio.mp3');
+  const audioPath = path.join(absOutputDir, 'audio.mp3');
   await extractAudio(input, audioPath);
 
   // Step 2: Whisper transcribe
   const model = options.model || 'small';
-  await execFileAsync('bash', [whisperScript, audioPath, model], { cwd: outputDir });
+  await execFileAsync('bash', [whisperScript, audioPath, model], { cwd: absOutputDir });
 
   // Step 3: Rename volcengine_result.json if present (Whisper outputs it directly in cwd)
-  const volcengineResult = path.join(outputDir, 'volcengine_result.json');
+  const volcengineResult = path.join(absOutputDir, 'volcengine_result.json');
 
   // Step 4: Generate word-level JSON
-  await execFileAsync('node', [generateWordsScript, volcengineResult], { cwd: outputDir });
+  await execFileAsync('node', [generateWordsScript, volcengineResult], { cwd: absOutputDir });
 
   // Step 5: Rename subtitles_words.json → transcript.json
-  const subtitlesWordsPath = path.join(outputDir, 'subtitles_words.json');
+  const subtitlesWordsPath = path.join(absOutputDir, 'subtitles_words.json');
   fs.renameSync(subtitlesWordsPath, transcriptPath);
 
   // Step 6: Read words and generate plain text
@@ -77,13 +78,13 @@ async function run({ input, outputDir, options = {} }) {
     .join('');
 
   // Step 7: Write plain text file
-  const txtPath = path.join(outputDir, 'transcript.txt');
+  const txtPath = path.join(absOutputDir, 'transcript.txt');
   fs.writeFileSync(txtPath, plainText, 'utf8');
 
   // Step 8: Generate SRT
   const srtEntries = wordsToSRT(words);
   const srtContent = generateSRT(srtEntries);
-  const srtPath = path.join(outputDir, 'transcript.srt');
+  const srtPath = path.join(absOutputDir, 'transcript.srt');
   fs.writeFileSync(srtPath, srtContent, 'utf8');
 
   return {

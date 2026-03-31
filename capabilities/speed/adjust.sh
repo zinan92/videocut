@@ -9,5 +9,5 @@ ffmpeg -y -i "file:$INPUT" \
   -filter:a "atempo=${RATE}" \
   -c:v libx264 -preset fast -crf 18 \
   -c:a aac -b:a 192k \
-  "file:$OUTPUT" 2>/dev/null
-[ $? -eq 0 ] && echo "Done: $OUTPUT" || { echo "Speed adjustment failed"; exit 1; }
+  "file:$OUTPUT"
+[ $? -eq 0 ] && echo "Done: $OUTPUT" || { echo "Speed adjustment failed (see ffmpeg errors above)"; exit 1; }

@@ -1,6 +1,7 @@
 'use strict';
 
 const path = require('node:path');
+const fs = require('node:fs');
 const { execFile } = require('node:child_process');
 const { promisify } = require('node:util');
 
@@ -35,6 +36,8 @@ function clampRate(rate) {
 async function run({ input, outputDir, options = {} }) {
   const rawRate = options.rate != null ? options.rate : DEFAULT_RATE;
   const rate = clampRate(rawRate);
+
+  fs.mkdirSync(outputDir, { recursive: true });
 
   const info = await probe(input);
   console.log(

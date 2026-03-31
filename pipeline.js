@@ -58,7 +58,20 @@ async function run({ input, outputDir, options = {} }) {
     console.log(`[${i + 1}/${total}] ${step}`);
 
     const capability = require(`./capabilities/${step}/index`);
-    const result = await capability.run({ input: currentInput, outputDir, options });
+
+    // Auto-feed transcript text to cover if no quotes provided
+    const stepOptions = { ...options };
+    if (step === 'cover' && !stepOptions.text && !stepOptions.quotes) {
+      const transcriptTxt = path.join(outputDir, 'transcript.txt');
+      if (fs.existsSync(transcriptTxt)) {
+        const text = fs.readFileSync(transcriptTxt, 'utf8').trim();
+        if (text) {
+          stepOptions.text = text.slice(0, 200);
+        }
+      }
+    }
+
+    const result = await capability.run({ input: currentInput, outputDir, options: stepOptions });
 
     if (result && result.video) {
       currentInput = result.video;
