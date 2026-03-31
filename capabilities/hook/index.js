@@ -152,12 +152,23 @@ async function run({ input, outputDir, options = {} }) {
       .join('');
   }
 
-  // Step 3: AI quote selection
-  const prompt = buildQuotePrompt(transcriptText);
-  const quotes = await callClaude(prompt, { parser: parseAIOutput });
-
-  if (!Array.isArray(quotes) || quotes.length === 0) {
-    throw new Error('Claude returned no valid quotes');
+  // Step 3: AI quote selection (with fallback)
+  let quotes;
+  try {
+    const prompt = buildQuotePrompt(transcriptText);
+    quotes = await callClaude(prompt, { parser: parseAIOutput });
+    if (!Array.isArray(quotes) || quotes.length === 0) {
+      throw new Error('Empty or invalid response');
+    }
+  } catch (aiError) {
+    console.log(`  AI quote selection failed: ${aiError.message}`);
+    console.log('  Falling back to using full transcript as single quote...');
+    quotes = [{
+      original_text: transcriptText.trim(),
+      quote_text: transcriptText.trim().slice(0, 200),
+      hook_score: 5,
+      category: 'practical',
+    }];
   }
 
   // Step 4: Write hooks.json
@@ -165,14 +176,31 @@ async function run({ input, outputDir, options = {} }) {
   fs.writeFileSync(hooksJsonPath, JSON.stringify(quotes, null, 2), 'utf8');
 
   // Step 5: Match quotes to SRT timestamps
-  const { segments, hookCount, totalDuration } = matchHooksToSRT(
-    quotes,
-    srtContent,
-    { maxCount, maxDuration, strictMode }
-  );
+  let segments, hookCount, totalDuration;
+  try {
+    const matched = matchHooksToSRT(
+      quotes,
+      srtContent,
+      { maxCount, maxDuration, strictMode }
+    );
+    segments = matched.segments;
+    hookCount = matched.hookCount;
+    totalDuration = matched.totalDuration;
+  } catch (matchError) {
+    // Fallback: use the first N seconds of the video as the hook
+    console.log(`  SRT matching failed: ${matchError.message}`);
+    console.log('  Falling back to first 10 seconds as hook...');
+    segments = [{ start: 0, end: Math.min(10, maxDuration) }];
+    hookCount = 1;
+    totalDuration = segments[0].end;
+  }
 
   if (segments.length === 0) {
-    throw new Error('No hook segments matched in SRT');
+    // Last resort: first 10 seconds
+    console.log('  No segments found, using first 10 seconds...');
+    segments = [{ start: 0, end: Math.min(10, maxDuration) }];
+    hookCount = 1;
+    totalDuration = segments[0].end;
   }
 
   // Step 6: FFmpeg cut each segment

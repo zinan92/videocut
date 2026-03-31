@@ -95,8 +95,14 @@ async function run({ input, outputDir, options = {} }) {
   }
   const transcriptText = fs.readFileSync(txtPath, 'utf8');
 
-  // Step 3: AI chapter analysis
-  const prompt = `You are a video editor assistant. Given the following transcript, identify chapters with 2-5 minute granularity.
+  // Step 3: AI chapter analysis (with fallback to even splits)
+  const { probe } = require('../../lib/ffmpeg');
+  const videoInfo = await probe(input);
+  const totalDuration = videoInfo.duration;
+
+  let chapters;
+  try {
+    const prompt = `You are a video editor assistant. Given the following transcript, identify chapters with 2-5 minute granularity.
 
 Return ONLY a valid JSON array (no markdown, no explanation) where each element has:
 - "title": short descriptive chapter title (string)
@@ -108,14 +114,35 @@ Return ONLY a valid JSON array (no markdown, no explanation) where each element 
 Transcript:
 ${transcriptText}`;
 
-  const rawChapters = await callClaude(prompt, { parser: parseAIOutput });
+    const rawChapters = await callClaude(prompt, { parser: parseAIOutput });
 
-  if (!Array.isArray(rawChapters)) {
-    throw new Error('AI did not return a valid chapters array');
+    if (!Array.isArray(rawChapters) || rawChapters.length === 0) {
+      throw new Error('AI returned empty or invalid chapters');
+    }
+
+    chapters = parseChapters(rawChapters);
+  } catch (aiError) {
+    // Fallback: split into even segments of ~120s each
+    console.log(`  AI chapter detection failed: ${aiError.message}`);
+    console.log('  Falling back to even-interval splitting...');
+
+    const segmentDuration = Math.min(120, totalDuration);
+    const segmentCount = Math.max(1, Math.ceil(totalDuration / segmentDuration));
+    const actualDuration = totalDuration / segmentCount;
+
+    chapters = [];
+    for (let i = 0; i < segmentCount; i++) {
+      const startSec = i * actualDuration;
+      const endSec = Math.min((i + 1) * actualDuration, totalDuration);
+      chapters.push({
+        title: `Part ${i + 1}`,
+        startSec,
+        endSec,
+        summary: '',
+        keywords: [],
+      });
+    }
   }
-
-  // Step 4: Parse chapters
-  const chapters = parseChapters(rawChapters);
 
   // Step 5: Apply duration filters (unless --all)
   const filteredChapters = options.all

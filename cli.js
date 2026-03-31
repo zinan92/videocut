@@ -104,6 +104,48 @@ function main(argv) {
     process.exit(1);
   }
 
+  // Batch mode: if input is a directory, run the capability on each video file
+  if (parsed.input && fs.existsSync(parsed.input) && fs.statSync(parsed.input).isDirectory()) {
+    const VIDEO_EXTS = new Set(['.mp4', '.mov', '.mkv', '.avi', '.webm', '.flv', '.m4v']);
+    const files = fs.readdirSync(parsed.input)
+      .filter((f) => VIDEO_EXTS.has(path.extname(f).toLowerCase()))
+      .map((f) => path.join(parsed.input, f))
+      .sort();
+
+    if (files.length === 0) {
+      process.stderr.write(`No video files found in: "${parsed.input}"\n`);
+      process.exit(1);
+    }
+
+    process.stdout.write(`Found ${files.length} video(s) in ${parsed.input}\n\n`);
+
+    const cap = parsed.capability === 'pipeline'
+      ? require('./pipeline')
+      : require(`./capabilities/${parsed.capability}/index`);
+
+    (async () => {
+      let ok = 0;
+      let fail = 0;
+      for (let i = 0; i < files.length; i++) {
+        const file = files[i];
+        const outputDir = parsed.outputDir
+          ? path.join(parsed.outputDir, path.basename(file, path.extname(file)))
+          : buildDefaultOutputDir(file);
+        process.stdout.write(`[${i + 1}/${files.length}] ${path.basename(file)}\n`);
+        try {
+          await cap.run({ input: file, outputDir, options: parsed.options });
+          ok++;
+        } catch (err) {
+          process.stderr.write(`  Error: ${err.message}\n`);
+          fail++;
+        }
+      }
+      process.stdout.write(`\nDone: ${ok} succeeded, ${fail} failed\n`);
+      if (fail > 0) process.exit(1);
+    })();
+    return;
+  }
+
   const outputDir = parsed.outputDir ||
     (parsed.input ? buildDefaultOutputDir(parsed.input) : './output');
 
