@@ -1,0 +1,130 @@
+{
+  "id": "videocut",
+  "name": "Videocut",
+  "version": "1.0.0",
+  "description": "AI-powered video editing — transcribe, autocut, subtitle, hook, clip, cover, speed, pipeline",
+
+  "entrypoint": "node cli.js",
+  "skill_path": "SKILL.md",
+
+  "install": {
+    "method": "custom",
+    "command": null,
+    "notes": "Zero npm dependencies. Clone and use directly."
+  },
+  "update": {
+    "method": "git-pull"
+  },
+
+  "dependencies": {
+    "system": ["node", "ffmpeg", "whisper"],
+    "python": null,
+    "node": ">=18"
+  },
+
+  "input_types": [
+    {
+      "type": "video-file",
+      "description": "Video or audio file for editing",
+      "examples": ["input.mp4", "recording.mov", "audio.mp3"]
+    },
+    {
+      "type": "hooks-json",
+      "description": "Hooks JSON file for cover generation (from hook sub-capability)",
+      "examples": ["output/hooks.json"]
+    }
+  ],
+  "output_types": [
+    {
+      "type": "video-file",
+      "description": "Edited video (cut.mp4, subtitled.mp4, speed.mp4, hook.mp4, clips/*.mp4)",
+      "structure": "output/{capability_output}"
+    },
+    {
+      "type": "transcript-json",
+      "description": "Word-level timestamped transcription",
+      "structure": "output/transcript.json"
+    },
+    {
+      "type": "srt-file",
+      "description": "SRT subtitle file",
+      "structure": "output/transcript.srt"
+    },
+    {
+      "type": "hooks-json",
+      "description": "Selected engaging quotes with timestamps",
+      "structure": "output/hooks.json"
+    },
+    {
+      "type": "cover-images",
+      "description": "Quote card PNG images (1080x1080)",
+      "structure": "output/card_*.png"
+    }
+  ],
+
+  "resources": {
+    "scripts": null,
+    "references": "references/",
+    "assets": null,
+    "examples": "examples/"
+  },
+
+  "tags": ["video", "editing", "transcription", "subtitles", "autocut", "hooks", "clips", "cover", "speed"],
+
+  "workflow": {
+    "before": ["download"],
+    "after": []
+  },
+
+  "subcommands": [
+    {
+      "id": "transcribe",
+      "entrypoint": "node cli.js transcribe",
+      "input_types": [{"type": "video-file"}],
+      "output_types": [{"type": "transcript-json"}, {"type": "srt-file"}],
+      "ai_required": false
+    },
+    {
+      "id": "autocut",
+      "entrypoint": "node cli.js autocut",
+      "input_types": [{"type": "video-file"}],
+      "output_types": [{"type": "video-file"}],
+      "ai_required": true
+    },
+    {
+      "id": "subtitle",
+      "entrypoint": "node cli.js subtitle",
+      "input_types": [{"type": "video-file"}],
+      "output_types": [{"type": "video-file"}, {"type": "srt-file"}],
+      "ai_required": false
+    },
+    {
+      "id": "hook",
+      "entrypoint": "node cli.js hook",
+      "input_types": [{"type": "video-file"}],
+      "output_types": [{"type": "video-file"}, {"type": "hooks-json"}],
+      "ai_required": true
+    },
+    {
+      "id": "clip",
+      "entrypoint": "node cli.js clip",
+      "input_types": [{"type": "video-file"}],
+      "output_types": [{"type": "video-file"}],
+      "ai_required": true
+    },
+    {
+      "id": "cover",
+      "entrypoint": "node cli.js cover",
+      "input_types": [{"type": "hooks-json"}],
+      "output_types": [{"type": "cover-images"}],
+      "ai_required": false
+    },
+    {
+      "id": "speed",
+      "entrypoint": "node cli.js speed",
+      "input_types": [{"type": "video-file"}],
+      "output_types": [{"type": "video-file"}],
+      "ai_required": false
+    }
+  ]
+}
