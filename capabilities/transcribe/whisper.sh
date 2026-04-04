@@ -2,15 +2,16 @@
 #
 # Whisper 本地语音识别（替代火山引擎）
 #
-# 用法: ./whisper_transcribe.sh <audio_file> [model]
+# 用法: ./whisper_transcribe.sh <audio_file> [model] [device]
 # 输出: volcengine_result.json（兼容火山引擎格式）
 #
 
 AUDIO_FILE="$1"
 MODEL="${2:-small}"
+DEVICE="${3:-}"
 
 if [ -z "$AUDIO_FILE" ]; then
-  echo "❌ 用法: ./whisper_transcribe.sh <audio_file> [model]"
+  echo "❌ 用法: ./whisper_transcribe.sh <audio_file> [model] [device]"
   echo "  model: tiny/base/small/medium/large (默认 small)"
   exit 1
 fi
@@ -23,9 +24,24 @@ fi
 TMPDIR=$(mktemp -d)
 trap "rm -rf $TMPDIR" EXIT
 
+if [ -z "$DEVICE" ]; then
+  if [ "$(uname -s)" = "Darwin" ] && [ "$(uname -m)" = "arm64" ]; then
+    DEVICE="mps"
+  else
+    echo "❌ 未检测到可用加速设备，且已禁用 CPU 转录。"
+    exit 1
+  fi
+fi
+
+if [ "$DEVICE" = "cpu" ]; then
+  echo "❌ CPU 转录已禁用。请使用 Apple 芯片加速转录。"
+  exit 1
+fi
+
 echo "🎤 Whisper 本地转录..."
 echo "音频: $AUDIO_FILE"
 echo "模型: $MODEL"
+echo "设备: $DEVICE"
 
 # 读取热词词典（Whisper 不直接支持热词，但记录下来供后续字幕纠错用）
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
@@ -34,12 +50,33 @@ if [ -f "$DICT_FILE" ]; then
   echo "📖 词典: $(grep -c -v '^$' "$DICT_FILE") 个热词（将在字幕纠错阶段使用）"
 fi
 
+if [ "$DEVICE" = "mps" ]; then
+  WHISPER_BIN="$(command -v whisper)"
+  if [ -z "$WHISPER_BIN" ]; then
+    echo "❌ 找不到 whisper 命令"
+    exit 1
+  fi
+
+  WHISPER_PY="$(head -n 1 "$WHISPER_BIN" | sed 's/^#!//')"
+  if [ -z "$WHISPER_PY" ] || [ ! -x "$WHISPER_PY" ]; then
+    echo "❌ 无法定位 Whisper 的 Python 运行环境"
+    exit 1
+  fi
+
+  if ! "$WHISPER_PY" -c "import sys, torch; sys.exit(0 if torch.backends.mps.is_available() else 1)" 2>/dev/null; then
+    echo "❌ Apple 芯片 MPS 当前不可用，已禁止回退到 CPU。请先修复 Whisper/PyTorch 的 MPS 环境。"
+    exit 1
+  fi
+fi
+
 # Whisper 转录（字级别时间戳）
 whisper "$AUDIO_FILE" \
   --model "$MODEL" \
+  --device "$DEVICE" \
   --language zh \
   --task transcribe \
   --word_timestamps True \
+  --fp16 False \
   --output_format json \
   --output_dir "$TMPDIR" \
   --verbose False

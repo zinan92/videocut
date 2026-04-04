@@ -2,7 +2,9 @@
 
 const { describe, it } = require('node:test');
 const assert = require('node:assert/strict');
-const { execFile } = require('node:child_process');
+const { execFile, execFileSync } = require('node:child_process');
+const fs = require('node:fs');
+const os = require('node:os');
 const path = require('node:path');
 
 const CLI = path.resolve(__dirname, '../cli.js');
@@ -17,6 +19,21 @@ function runCli(args) {
       });
     });
   });
+}
+
+function makeSilentAudio() {
+  const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'videocut-cli-'));
+  const audioPath = path.join(tmpDir, 'sample.mp3');
+  execFileSync('ffmpeg', [
+    '-f', 'lavfi',
+    '-i', 'anullsrc=r=16000:cl=mono',
+    '-t', '0.2',
+    '-q:a', '9',
+    '-acodec', 'libmp3lame',
+    '-y',
+    audioPath,
+  ], { stdio: 'ignore' });
+  return { tmpDir, audioPath };
 }
 
 describe('cli', () => {
@@ -48,5 +65,25 @@ describe('cli', () => {
     const { exitCode, stderr } = await runCli(['transcribe', '/nonexistent/file.mp4']);
     assert.equal(exitCode, 1);
     assert.ok(stderr.includes('not found'), `stderr should mention file not found, got: ${stderr}`);
+  });
+
+  it('prints a clean user-facing error when cpu transcription is requested', async () => {
+    const { tmpDir, audioPath } = makeSilentAudio();
+    const outputDir = path.join(tmpDir, 'out');
+
+    const { exitCode, stderr } = await runCli(['transcribe', audioPath, '--device', 'cpu', '-o', outputDir]);
+    assert.equal(exitCode, 1);
+    assert.match(stderr, /CPU transcription is disabled/i);
+    assert.doesNotMatch(stderr, /node:internal|Error: Command failed/i);
+  });
+
+  it('prints a clean user-facing error when accelerated transcription fails', async () => {
+    const { tmpDir, audioPath } = makeSilentAudio();
+    const outputDir = path.join(tmpDir, 'out');
+
+    const { exitCode, stderr } = await runCli(['transcribe', audioPath, '--device', 'mps', '-o', outputDir]);
+    assert.equal(exitCode, 1);
+    assert.match(stderr, /MPS.*不可用|MPS.*not available|Apple.*MPS/i);
+    assert.doesNotMatch(stderr, /node:internal|Error: Command failed/i);
   });
 });

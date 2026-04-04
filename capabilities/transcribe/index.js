@@ -13,6 +13,26 @@ const { wordsToSRT, generateSRT } = require('../../lib/srt');
 const whisperScript = path.join(__dirname, 'whisper.sh');
 const generateWordsScript = path.join(__dirname, 'generate_words.js');
 
+function resolveDevice(options = {}, system = process) {
+  const requested = options.device ? String(options.device).toLowerCase() : '';
+
+  if (requested === 'cpu') {
+    throw new Error('CPU transcription is disabled. Please use Apple Silicon acceleration instead.');
+  }
+
+  if (requested) {
+    return requested;
+  }
+
+  if (system.platform === 'darwin' && system.arch === 'arm64') {
+    return 'mps';
+  }
+
+  throw new Error(
+    'No supported accelerated transcription device is available. CPU fallback is disabled.'
+  );
+}
+
 /**
  * Transcribe a video or audio file using Whisper.
  *
@@ -58,7 +78,8 @@ async function run({ input, outputDir, options = {} }) {
 
   // Step 2: Whisper transcribe
   const model = options.model || 'small';
-  await execFileAsync('bash', [whisperScript, audioPath, model], { cwd: absOutputDir });
+  const device = resolveDevice(options);
+  await execFileAsync('bash', [whisperScript, audioPath, model, device], { cwd: absOutputDir });
 
   // Step 3: Rename volcengine_result.json if present (Whisper outputs it directly in cwd)
   const volcengineResult = path.join(absOutputDir, 'volcengine_result.json');
@@ -99,4 +120,4 @@ async function run({ input, outputDir, options = {} }) {
   };
 }
 
-module.exports = { run };
+module.exports = { run, resolveDevice };

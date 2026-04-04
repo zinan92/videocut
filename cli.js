@@ -85,7 +85,7 @@ function buildDefaultOutputDir(inputFile) {
   return path.join('./output', `${today}_${basename}`);
 }
 
-function main(argv) {
+async function main(argv) {
   const parsed = parseArgs(argv);
 
   if (!parsed.capability || parsed.capability === 'help') {
@@ -157,11 +157,18 @@ function main(argv) {
 
   if (parsed.capability === 'pipeline') {
     const pipeline = require('./pipeline');
-    pipeline.run(runOptions);
+    await pipeline.run(runOptions);
   } else {
     const cap = require(`./capabilities/${parsed.capability}/index`);
-    cap.run(runOptions);
+    await cap.run(runOptions);
   }
 }
 
-main(process.argv);
+main(process.argv).catch((err) => {
+  const message = err && err.stdout ? String(err.stdout).trim()
+    : err && err.stderr ? String(err.stderr).trim()
+    : err && err.message ? String(err.message).trim()
+    : 'Unknown error';
+  process.stderr.write(message + '\n');
+  process.exit(1);
+});
