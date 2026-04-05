@@ -1,4 +1,5 @@
 .env
+.venv-mlx-whisper/
 提交/
 output/
 *.mp3

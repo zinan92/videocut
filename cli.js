@@ -23,7 +23,7 @@ Usage:
   videocut <capability> [input] [-o outputDir] [flags]
 
 Capabilities:
-  transcribe   Transcribe audio/video to text using Whisper
+  transcribe   Transcribe audio/video to text using MLX Whisper on Apple Silicon
   autocut      Auto-cut silences and filler words
   subtitle     Burn subtitles into video
   hook         Generate a hook clip from the first N seconds

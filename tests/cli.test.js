@@ -11,7 +11,19 @@ const CLI = path.resolve(__dirname, '../cli.js');
 
 function runCli(args) {
   return new Promise((resolve) => {
-    execFile('node', [CLI, ...args], (error, stdout, stderr) => {
+    execFile('node', [CLI, ...args], { env: process.env }, (error, stdout, stderr) => {
+      resolve({
+        exitCode: error ? error.code ?? 1 : 0,
+        stdout,
+        stderr,
+      });
+    });
+  });
+}
+
+function runCliWithEnv(args, env) {
+  return new Promise((resolve) => {
+    execFile('node', [CLI, ...args], { env: { ...process.env, ...env } }, (error, stdout, stderr) => {
       resolve({
         exitCode: error ? error.code ?? 1 : 0,
         stdout,
@@ -71,7 +83,16 @@ describe('cli', () => {
     const { tmpDir, audioPath } = makeSilentAudio();
     const outputDir = path.join(tmpDir, 'out');
 
-    const { exitCode, stderr } = await runCli(['transcribe', audioPath, '--device', 'cpu', '-o', outputDir]);
+    const { exitCode, stderr } = await runCli([
+      'transcribe',
+      audioPath,
+      '--backend',
+      'whisper',
+      '--device',
+      'cpu',
+      '-o',
+      outputDir,
+    ]);
     assert.equal(exitCode, 1);
     assert.match(stderr, /CPU transcription is disabled/i);
     assert.doesNotMatch(stderr, /node:internal|Error: Command failed/i);
@@ -81,9 +102,12 @@ describe('cli', () => {
     const { tmpDir, audioPath } = makeSilentAudio();
     const outputDir = path.join(tmpDir, 'out');
 
-    const { exitCode, stderr } = await runCli(['transcribe', audioPath, '--device', 'mps', '-o', outputDir]);
+    const { exitCode, stderr } = await runCliWithEnv(
+      ['transcribe', audioPath, '--backend', 'mlx', '-o', outputDir],
+      { MLX_WHISPER_PYTHON: '/missing/mlx/python' }
+    );
     assert.equal(exitCode, 1);
-    assert.match(stderr, /MPS.*不可用|MPS.*not available|Apple.*MPS/i);
+    assert.match(stderr, /mlx-whisper runtime is not installed/i);
     assert.doesNotMatch(stderr, /node:internal|Error: Command failed/i);
   });
 });

@@ -18,7 +18,7 @@ in  视频文件 (mp4/mov) | 视频目录 (batch mode)
 out 剪辑视频 + 字幕 + 金句片段 + 封面卡片 + 章节切片 + 变速视频
 
 fail 视频文件不存在           → exit 1, 提示路径
-fail ffmpeg/whisper/node 缺失 → exit 1, 依赖检查提示安装
+fail ffmpeg/mlx-whisper/node 缺失 → exit 1, 依赖检查提示安装
 fail Claude CLI 未认证       → AI 步骤 fallback (静音检测 / 均分切片 / 全文替代)
 fail Chrome 未安装           → cover 能力跳过
 fail 目录内无视频文件         → exit 1, 提示目录为空
@@ -68,7 +68,7 @@ Done: 3 succeeded, 0 failed
 
 | 能力 | 做什么 | 命令 |
 |------|--------|------|
-| **transcribe** | 语音→文字 (Whisper) | `videocut transcribe input.mp4 -o out/` |
+| **transcribe** | 语音→文字 (Apple 芯片默认 MLX Whisper) | `videocut transcribe input.mp4 -o out/` |
 | **autocut** | 去语气词/停顿/口误 | `videocut autocut input.mp4 -o out/ --no-review` |
 | **subtitle** | 检测/生成/烧录字幕 | `videocut subtitle input.mp4 -o out/` |
 | **hook** | 提取金句 + 切视频片段 | `videocut hook input.mp4 -o out/ --count 4` |
@@ -91,7 +91,7 @@ Usage:
   videocut <capability> [input] [-o outputDir] [flags]
 
 Capabilities:
-  transcribe   Transcribe audio/video to text using Whisper
+  transcribe   Transcribe audio/video to text using MLX Whisper on Apple Silicon
   autocut      Auto-cut silences and filler words
   subtitle     Burn subtitles into video
   hook         Generate a hook clip from the first N seconds
@@ -125,7 +125,7 @@ Examples:
             │          │          │          │          │     │      │
             │     ┌────┴────┐    │     ┌────┴────┐    │     │      │
             ▼     ▼         ▼    ▼     ▼         ▼    ▼     ▼      ▼
-         Whisper  Claude  cut.sh burn.sh  match.js split.sh Chrome FFmpeg
+       MLX/Whisper Claude  cut.sh burn.sh  match.js split.sh Chrome FFmpeg
                   (AI分析) (FFmpeg)       (SRT匹配) (FFmpeg) 截图   atempo
 
 共享库: lib/ffmpeg.js  lib/srt.js  lib/claude.js
@@ -147,7 +147,9 @@ Examples:
 ```bash
 # 安装系统依赖
 brew install ffmpeg node
-pip install openai-whisper
+python3 -m venv .venv-mlx-whisper
+. .venv-mlx-whisper/bin/activate
+pip install mlx-whisper
 # Claude CLI: https://docs.anthropic.com/en/docs/claude-cli
 
 # 克隆（零 npm 依赖，不需要 npm install）
@@ -168,7 +170,7 @@ node cli.js pipeline ~/videos/ --steps autocut,subtitle -o output/
 
 ### Transcribe
 
-语音转文字。Whisper 本地转录，输出逐词 JSON + 纯文本 + SRT。
+语音转文字。Apple Silicon 默认走 `mlx-whisper` 本地转录，输出逐词 JSON + 纯文本 + SRT。CPU fallback 默认关闭；如果不是 Apple 芯片或 MLX 环境没装好，会直接报错。
 
 ```bash
 node cli.js transcribe input.mp4 -o output/ --model small
@@ -176,6 +178,16 @@ node cli.js transcribe input.mp4 -o output/ --model small
 ```
 
 内置缓存：output 目录已有 `transcript.json` 时直接复用，不重复转录。
+
+可选显式参数：
+
+```bash
+# Apple Silicon 默认 backend=mlx
+node cli.js transcribe input.mp4 -o output/ --backend mlx --model small
+
+# 如需手动切回原版 Whisper（例如非 Mac 环境）
+node cli.js transcribe input.mp4 -o output/ --backend whisper --model small
+```
 
 ### AutoCut
 
@@ -296,7 +308,7 @@ videocut/
 |------|------|------|
 | CLI | Node.js 18+ (built-ins only) | 编排 + 数据处理 |
 | AI | Claude CLI | 口误分析、金句选择、章节分析 |
-| 转录 | Whisper | 本地语音转文字 |
+| 转录 | MLX Whisper / Whisper | 本地语音转文字 |
 | 音视频 | FFmpeg | 剪辑、字幕烧录、变速、切片 |
 | 截图 | Chrome Headless | 封面 + 金句卡片 |
 
@@ -348,7 +360,10 @@ cli_flags:
     description: "变速倍率 (speed, 1.0-1.2)"
   - name: --model
     type: string
-    description: "Whisper 模型 (tiny/base/small/medium/large)"
+    description: "转录模型 (tiny/base/small/medium/large/turbo)"
+  - name: --backend
+    type: string
+    description: "转录后端 (mlx/whisper); Apple Silicon 默认 mlx"
   - name: --min-duration
     type: number
     description: "最短片段时长秒 (clip)"
