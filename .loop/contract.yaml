@@ -1,0 +1,52 @@
+project_id: videocut
+name: videocut
+repo_path: .
+
+purpose: >
+  Improve the user-facing value of videocut. The loop should identify the
+  highest-value small product change available in this repo, prefer observable
+  behavior over internal cleanup, and stop when no candidate clears the value
+  line.
+
+artifact_contract:
+  primary:
+    - user-facing commands, screens, generated artifacts, or workflows
+    - tests that prove the selected user-visible behavior
+    - docs only when they clarify a real user or operator workflow
+  not_primary:
+    - launchd installation state
+    - credential or external account state
+    - production publishing state
+
+risk_policy:
+  auto_execute: low
+  needs_human_approval:
+    - credential or token handling
+    - external auth probing changes
+    - launchd, cron, or scheduler installation changes
+    - destructive file operations
+    - network publishing
+    - broker credentials, live broker orders, real-money movement, payment execution, or live trading config changes
+    - broad architecture rewrites
+
+allowed_low_risk_work:
+  - small user-visible CLI, status, API, or artifact clarity improvements with tests
+  - tests for the selected product behavior
+  - README or docs that clarify the actual user or operator workflow
+  - deterministic parsing, validation, or observability that unlocks user value
+  - read-only trading analysis, backtest/report interpretation, or data-quality checks that do not touch live broker paths
+  - small internal refactors only when needed for the selected behavior and covered by tests
+
+verification:
+  commands:
+    - npm test
+
+loop_rules:
+  - Planner ranks candidates by product value, not ease.
+  - Planner creates low-risk tasks with bounded Allowed Files.
+  - No candidate over the value line means do nothing; do not create busywork.
+  - Worker modifies only files listed in the issue.
+  - Reviewer must verify Definition of Done and tests before pass.
+  - Medium or high risk work is recorded for human approval.
+  - When Linear sync is disabled, approval queues stay in local state, digest, and GitHub.
+  - Runtime state and run logs live in the global loop engine, not here.

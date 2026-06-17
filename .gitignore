@@ -8,3 +8,6 @@ output/
 uploads/
 test_videos/
 剪口播/用户习惯/feedback_examples.md
+
+# Loop runtime handoff artifacts.
+.loop/daily-focus/
